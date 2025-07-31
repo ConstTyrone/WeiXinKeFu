@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile:*)",
+      "WebFetch(domain:developer.work.weixin.qq.com)",
+      "Bash(python run.py:*)",
+      "Bash(python:*)",
+      "Bash(powershell:*)",
+      "WebFetch(domain:kf.weixin.qq.com)",
+      "Bash(taskkill:*)",
+      "Bash(rm:*)",
+      "Bash(mkdir:*)",
+      "Bash(mv:*)",
+      "Bash(ls:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(grep:*)",
+      "Bash(sed:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": []
+  }
+}
