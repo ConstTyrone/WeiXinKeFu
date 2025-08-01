@@ -223,9 +223,12 @@ def handle_wechat_kf_event(message: Dict[str, Any]) -> None:
         
         from wework_client import wework_client
         
-        # 简化逻辑：直接获取最新的1条消息
-        print("🔄 获取最新消息...")
-        messages = wework_client.sync_kf_messages(token, open_kfid, limit=1, get_latest_only=True)
+        # 拉取所有消息，返回最新的1条
+        print("🔄 拉取所有消息，获取最新的...")
+        logger.info("开始调用sync_kf_messages接口拉取所有消息")
+        messages = wework_client.sync_kf_messages(token=token, open_kf_id=open_kfid, get_latest_only=True)
+        logger.info(f"sync_kf_messages调用完成，共获取到 {len(messages) if messages else 0} 条消息")
+        print(f"共获取到 {len(messages) if messages else 0} 条消息")
         
         if messages:
             print(f"✅ 获取到最新消息")

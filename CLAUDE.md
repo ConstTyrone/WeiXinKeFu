@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a FastAPI-based webhook service for integrating with WeWork (企业微信) and WeChat Customer Service (微信客服) platforms. The service handles message callbacks from both platforms, classifies different types of messages, and processes them accordingly. The application supports both Enterprise WeChat's direct message delivery and WeChat Customer Service's event-driven message synchronization mechanism.
+This is a FastAPI-based webhook service for integrating with WeWork (企业微信) and WeChat Customer Service (微信客服) platforms. The service handles message callbacks from both platforms, classifies different types of messages, and processes them accordingly with AI-powered user profile extraction. The application supports both Enterprise WeChat's direct message delivery and WeChat Customer Service's event-driven message synchronization mechanism.
 
 ## Architecture
 
@@ -20,7 +20,7 @@ The application follows a clean, unified message processing architecture:
 - `message_handler.py`: **Unified message processing pipeline** - orchestrates the entire user profile extraction flow
 - `message_classifier.py`: Message classification logic that categorizes incoming messages into types
 - `message_formatter.py`: **Text Extractor** - Converts all message types (text, voice, files, chat records) to pure text for AI analysis
-- `media_processor.py`: **NEW** - Handles speech-to-text, file content extraction (word/pdf/excel/txt), and media download
+- `media_processor.py`: **Multimedia Processor** - Handles media download, ETL4LM integration for OCR and PDF processing
 - `ai_service.py`: **User Profile Extractor** - Analyzes text content and extracts detailed user profiles using Qwen API
 - `config/config.py`: Configuration management using environment variables
 - `run.py`: Application startup script
@@ -45,16 +45,20 @@ The application follows a clean, unified message processing architecture:
    - **Profile Generation**: Extracts detailed user information including name, age, location, occupation, personality, etc.
    - Special handling for WeChat Customer Service events that require calling sync_msg API to retrieve actual message content
 
-3. **Multi-Media Content Processing**:
+3. **Multi-Media Content Processing with ETL4LM Integration**:
 
+   - **ETL4LM API Integration**: Full integration with ETL4LM service for advanced document processing
+     - Image OCR: Automatic text extraction from images with timeout handling (3 minutes)
+     - PDF Processing: Advanced PDF parsing with formula recognition and timeout handling (5 minutes)
+     - Progress tracking and file size estimation for better user experience
    - **Speech Recognition**: Framework for converting voice messages to text (ready for API integration)
    - **Document Processing**: Support for extracting text from common file formats
      - TXT files: Multi-encoding support (UTF-8, GBK, GB2312)
      - Word documents: Ready for python-docx integration
-     - PDF files: Ready for PyPDF2/pdfplumber integration  
+     - PDF files: ETL4LM integration for advanced parsing with OCR and formula support
      - Excel files: Ready for openpyxl integration
    - **Media Download**: Automatic downloading of media files via MediaID for processing
-   - **OCR Integration**: Framework ready for image text recognition
+   - **File Type Detection**: Magic number detection for files without metadata
 
 ## User Profile Extraction
 
@@ -169,24 +173,20 @@ python run.py
 
 ### Testing
 ```bash
-# Test callback verification
-python tests/test_callback_verification.py
+# Test ETL integration
+python test_etl.py
 
-# Test signature verification  
-python tests/test_wework_signature.py
+# Test timeout handling
+python test_timeout_handling.py
 
-# Test message callback
-python tests/test_message_callback.py
+# Check Python syntax
+python -m py_compile *.py
 ```
 
-### Debug Tools
-```bash
-# Debug WeWork callback verification
-python utils/debug_wework_callback.py
-
-# Check port usage
-python utils/check_port.py
-```
+### Development Workflow
+1. **Adding New Message Types**: Update `message_classifier.py` → Add handler in `message_handler.py` → Add text extraction in `message_formatter.py`
+2. **Testing ETL Features**: Send images/PDFs through WeChat → Check logs for processing status → Verify AI analysis results
+3. **Debugging**: Enable detailed logging by checking console output during message processing
 
 ### Environment Variables
 Create a `.env` file with the following variables:
@@ -196,8 +196,14 @@ Create a `.env` file with the following variables:
 - WEWORK_TOKEN=your_token
 - WEWORK_AES_KEY=your_aes_key
 - LOCAL_SERVER_PORT=3001 (optional, defaults to 3001)
-- QWEN_API_KEY=your_qwen_api_key
+- QWEN_API_KEY=your_qwen_api_key (通义千问API密钥)
 - QWEN_API_ENDPOINT=https://dashscope.aliyuncs.com/compatible-mode/v1
+
+### ETL4LM Configuration
+The ETL4LM service is pre-configured:
+- ETL Base URL: http://110.16.193.170:50103
+- Predict Endpoint: /v1/etl4llm/predict
+- No additional API keys required for ETL service
 
 ## Project Structure
 
@@ -208,10 +214,14 @@ Create a `.env` file with the following variables:
 │   └── config.py           # 配置管理
 ├── message_classifier.py   # 消息分类器
 ├── message_handler.py      # 消息处理器
+├── message_formatter.py    # 消息文本提取器
+├── media_processor.py      # 多媒体处理器（包含ETL集成）
 ├── ai_service.py           # AI服务，处理通义千问API调用
 ├── run.py                  # 应用启动脚本
 ├── requirements.txt        # 项目依赖
 ├── weixin_doc/             # 微信客服官方文档
+├── reference/              # 技术文档参考
+│   └── ETL接口文档.md      # ETL4LM API文档
 └── CLAUDE.md               # 本文件
 ```
 
@@ -238,27 +248,36 @@ Create a `.env` file with the following variables:
 9. Extracts text content and sends to AI for user profile analysis
 10. Formats AI analysis results and sends back to user via WeChat API
 
-## Recent Bug Fixes (2025-08-01)
+## Recent Updates and Improvements
 
-### Critical Message Sync Issues Fixed:
-1. **Fixed oldest vs newest message problem**: Previously was reading oldest 20 messages instead of newest
+### ETL4LM Integration (2025-08-01)
+1. **Image OCR Processing**: Integrated ETL4LM API for automatic text extraction from images
+   - Supports multiple image formats (jpg, png, bmp, tiff, webp)
+   - 3-minute timeout with progress tracking
+   - Automatic text extraction for user profile analysis
+
+2. **PDF Document Processing**: Advanced PDF parsing with ETL4LM
+   - Text layer extraction and OCR when needed
+   - Formula recognition support
+   - 5-minute timeout for complex documents
+   - File size estimation and progress feedback
+
+3. **Enhanced Timeout Handling**:
+   - Increased PDF processing timeout from 120s to 300s
+   - Added user-friendly error messages with suggestions
+   - Progress tracking with time estimation
+   - Detailed error categorization (timeout, connection, general)
+
+4. **File Type Detection**: 
+   - Magic number detection for files without metadata
+   - Handles WeChat Customer Service file messages without filenames
+   - Automatic file type identification for proper processing
+
+### Critical Message Sync Issues Fixed (2025-08-01):
+1. **Fixed oldest vs newest message problem**: Previously was reading oldest messages instead of newest
 2. **Simplified sync logic**: Removed complex pagination optimization that was causing errors
-3. **Single message processing**: Now only processes the latest message each time (limit=1)
+3. **Improved cursor management**: Properly tracks message position for each customer service account
 4. **Added user reply mechanism**: AI analysis results are now sent back to users automatically
-5. **Improved message ordering**: When limit=1, uses max() by send_time to ensure we get the actual newest message
-
-### Key Changes Made:
-- **message_handler.py**: 
-  - Simplified `handle_wechat_kf_event()` to use direct sync with limit=1
-  - Added `process_message_and_get_result()` function that returns formatted text for user replies
-  - Added automatic message sending back to users with AI analysis results
-- **wework_client.py**: 
-  - Fixed `sync_kf_messages()` to properly handle limit=1 case
-  - When limit=1, uses max() by send_time to get the actual newest message
-  - Removed problematic message list reversal logic
-- **main.py**: 
-  - Removed dependency on broken message_sync_optimizer
-  - Simplified sync status endpoint
 
 ## Platform Differences
 

@@ -1,0 +1,85 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# Environment variables
+.env
+.env.local
+.env.test
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+temp_media/
+*.log
+*.pid
+*.seed
+*.cover
+.coverage
+.nyc_output
+.cache
+.pytest_cache/
+
+# Claude settings (keep local only)
+.claude/settings.local.json
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
+# SDK downloads
+alibabacloud-nls-python-sdk-*
+*.zip
+
+# Media files
+*.amr
+*.pcm
+*.wav
+*.mp3
+*.mp4
+*.jpg
+*.jpeg
+*.png
+*.pdf
+!reference/*.md
+!weixin_doc/*.md

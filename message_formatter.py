@@ -66,20 +66,44 @@ class MessageTextExtractor:
         return f"{context}发送了以下文本消息：\n{content}"
     
     def _extract_image_content(self, message: Dict[str, Any]) -> str:
-        """提取图片消息信息（暂时返回基本信息，后续可实现OCR）"""
+        """提取图片消息信息并进行OCR识别"""
         context = self._get_user_context(message)
         media_id = message.get('MediaId', '')
         
-        # TODO: 实现图片OCR文字识别
-        return f"{context}发送了一张图片（MediaID: {media_id}）。注：图片内容需要进一步OCR识别才能获取文字信息。"
+        # 使用ETL4LM接口进行图片OCR识别
+        try:
+            from media_processor import media_processor
+            
+            logger.info(f"🖼️ 开始图片OCR识别: {media_id}")
+            ocr_text = media_processor.process_image_ocr(media_id)
+            
+            if ocr_text and not ocr_text.startswith('[图片OCR'):
+                return f"{context}发送了一张图片，通过OCR识别出以下文字内容：\n{ocr_text}"
+            else:
+                # 检查是否是超时错误，提供更友好的提示
+                if "超时" in str(ocr_text):
+                    return f"{context}发送了一张图片。OCR识别超时，建议：\n1. 尝试发送分辨率较低的图片\n2. 检查网络连接稳定性\n3. 稍后重试"
+                else:
+                    return f"{context}发送了一张图片（MediaID: {media_id}）。OCR识别结果：{ocr_text or '未能识别出文字内容'}"
+        except Exception as e:
+            logger.error(f"图片OCR处理失败: {e}")
+            return f"{context}发送了一张图片（MediaID: {media_id}）。OCR识别失败：{str(e)}"
     
     def _extract_file_content(self, message: Dict[str, Any]) -> str:
         """提取文件内容"""
         context = self._get_user_context(message)
         media_id = message.get('MediaId', '')
-        filename = message.get('Title', '未知文件')
+        filename = message.get('Title', '')
         
-        # 根据文件扩展名判断文件类型
+        logger.info(f"📁 处理文件消息: MediaId={media_id}, Title='{filename}'")
+        
+        # 微信客服的文件消息可能没有文件名，我们需要先下载文件来识别类型
+        if not filename or filename.strip() == '':
+            # 没有文件名，先尝试下载文件来识别类型
+            logger.info("📁 文件名为空，尝试下载文件识别类型")
+            return self._process_file_without_name(context, media_id)
+        
+        # 有文件名的情况，按原逻辑处理
         file_ext = filename.lower().split('.')[-1] if '.' in filename else ''
         
         if file_ext in ['txt', 'doc', 'docx', 'pdf', 'xls', 'xlsx']:
@@ -87,12 +111,81 @@ class MessageTextExtractor:
             from media_processor import media_processor
             file_content = media_processor.extract_file_content(media_id, filename)
             
-            if file_content and file_content != "[Word文档解析功能待实现]" and file_content != "[PDF文档解析功能待实现]" and file_content != "[Excel文档解析功能待实现]":
-                return f"{context}发送了文件《{filename}》，文件内容如下：\n{file_content}"
+            if file_content and not any(placeholder in file_content for placeholder in ["功能待实现", "解析失败", "处理异常"]):
+                return f"{context}发送了文件《{filename}》，通过ETL接口解析出以下内容：\n{file_content}"
             else:
-                return f"{context}发送了文件《{filename}》（{file_ext.upper()}格式），文件内容提取功能待完善。"
+                return f"{context}发送了文件《{filename}》（{file_ext.upper()}格式）。文件解析结果：{file_content or '解析失败'}"
         else:
             return f"{context}发送了文件《{filename}》，文件格式为{file_ext}，暂不支持内容提取。"
+    
+    def _process_file_without_name(self, context: str, media_id: str) -> str:
+        """处理没有文件名的文件消息（微信客服特有情况）"""
+        try:
+            from media_processor import media_processor
+            
+            # 先下载文件
+            file_path = media_processor.download_media(media_id)
+            if not file_path:
+                return f"{context}发送了一个文件，但下载失败。"
+            
+            logger.info(f"📁 下载的文件路径: {file_path}")
+            
+            # 根据文件扩展名判断类型
+            file_ext = os.path.splitext(file_path)[1].lower()
+            logger.info(f"📁 识别文件扩展名: {file_ext}")
+            
+            # 生成默认文件名
+            filename = f"文件{media_id[:8]}{file_ext}"
+            
+            if file_ext in ['.txt', '.doc', '.docx', '.pdf', '.xls', '.xlsx']:
+                # 直接使用本地文件路径处理
+                if file_ext == '.pdf':
+                    # PDF使用ETL接口处理
+                    with open(file_path, 'rb') as f:
+                        pdf_data = f.read()
+                    
+                    from media_processor import etl_processor
+                    result = etl_processor.process_pdf_document(pdf_data, filename)
+                    
+                    # 清理临时文件
+                    try:
+                        os.remove(file_path)
+                    except:
+                        pass
+                    
+                    if result['success']:
+                        return f"{context}发送了一个PDF文件，通过ETL接口解析出以下内容：\n{result['text']}"
+                    else:
+                        error_type = result.get('metadata', {}).get('error_type', 'general_error')
+                        suggestions = result.get('metadata', {}).get('suggestions', [])
+                        
+                        if error_type == 'timeout':
+                            suggestion_text = '\n'.join([f"{i+1}. {s}" for i, s in enumerate(suggestions)]) if suggestions else "建议尝试发送较小的PDF文件"
+                            return f"{context}发送了一个PDF文件。由于文档复杂，解析超时（超过5分钟）。建议：\n{suggestion_text}"
+                        elif error_type == 'connection_error':
+                            return f"{context}发送了一个PDF文件。ETL服务暂时不可用，请稍后重试。"
+                        else:
+                            return f"{context}发送了一个PDF文件。解析失败：{result.get('error', '未知错误')}"
+                else:
+                    # 其他文件类型使用原有逻辑
+                    file_content = media_processor.extract_file_content(media_id, filename)
+                    
+                    if file_content and not any(placeholder in file_content for placeholder in ["功能待实现", "解析失败", "处理异常"]):
+                        return f"{context}发送了一个{file_ext.upper()}文件，解析出以下内容：\n{file_content}"
+                    else:
+                        return f"{context}发送了一个{file_ext.upper()}文件。解析结果：{file_content or '解析失败'}"
+            else:
+                # 清理临时文件
+                try:
+                    os.remove(file_path)
+                except:
+                    pass
+                
+                return f"{context}发送了一个{file_ext.upper()}格式的文件，暂不支持内容提取。"
+                
+        except Exception as e:
+            logger.error(f"处理无文件名文件时发生错误: {e}")
+            return f"{context}发送了一个文件，但处理时发生错误：{str(e)}"
     
     
     def _extract_voice_content(self, message: Dict[str, Any]) -> str:
@@ -102,12 +195,19 @@ class MessageTextExtractor:
         
         # 使用多媒体处理器进行语音转文字
         from media_processor import media_processor
+        logger.info(f"🎤 开始处理语音消息: {media_id}")
         voice_text = media_processor.speech_to_text(media_id)
         
-        if voice_text and voice_text != "[语音转文字功能待实现]":
+        if voice_text and not any(keyword in voice_text for keyword in ["[语音", "失败", "错误", "异常"]):
             return f"{context}发送了语音消息，语音内容为：\n{voice_text}"
+        elif "ASR SDK未安装" in str(voice_text):
+            return f"{context}发送了语音消息（MediaID: {media_id}）。语音识别服务未启用，请安装阿里云ASR SDK。"
+        elif "格式转换失败" in str(voice_text):
+            return f"{context}发送了语音消息（MediaID: {media_id}）。音频格式转换失败，请检查ffmpeg是否正确安装。"
+        elif "ffmpeg未找到" in str(voice_text):
+            return f"{context}发送了语音消息（MediaID: {media_id}）。\n\n🔧 需要安装音频转换工具:\n1. 下载ffmpeg: https://ffmpeg.org/download.html\n2. 添加到系统PATH环境变量\n3. 重启应用后即可识别语音"
         else:
-            return f"{context}发送了语音消息（MediaID: {media_id}），语音转文字功能待完善。"
+            return f"{context}发送了语音消息（MediaID: {media_id}）。{voice_text or '语音识别服务暂时不可用'}"
     
     
     def _extract_video_content(self, message: Dict[str, Any]) -> str:

@@ -47,7 +47,7 @@ class UserProfileExtractor:
             10. 资产水平 - 高/中/低/未知
             11. 性格 - 描述用户的性格特征
             
-            请以JSON格式返回结果，格式如下：
+            请严格按照以下JSON格式返回结果，不要包含任何注释或解释：
             {{
                 "summary": "消息的主要内容总结（不超过50个字）",
                 "user_profiles": [
@@ -74,15 +74,18 @@ class UserProfileExtractor:
             4. summary字段请用简短语言总结消息的主要内容
             5. 特别关注聊天记录中的个人信息，如姓名、年龄、工作、居住地等
             6. 从语音转换的文字、文件内容、图片OCR结果中提取有价值的用户信息
+            7. 请直接返回JSON，不要有任何额外的说明或注释
+            8. 对于学历和公司字段，只需要填写核心信息，不要添加过多解释
             """
             
             # 构造请求数据
             data = {
                 "model": "qwen-max",
                 "messages": [
+                    {"role": "system", "content": "你是一个专业的用户画像分析助手。请严格按照要求的JSON格式返回结果，不要包含任何JSON之外的内容、注释或解释。"},
                     {"role": "user", "content": prompt}
                 ],
-                "temperature": 0.7
+                "temperature": 0.3  # 降低温度使输出更稳定
             }
             
             logger.info("正在调用通义千问API分析用户画像")
@@ -104,7 +107,12 @@ class UserProfileExtractor:
                 
                 # 解析响应内容
                 ai_response = result['choices'][0]['message']['content']
-                logger.info(f"AI原始响应: {ai_response[:200]}...")
+                logger.info(f"AI响应长度: {len(ai_response)} 字符")
+                logger.info(f"AI原始响应前500字符: {ai_response[:500]}...")
+                
+                # 如果响应太长，记录完整内容
+                if len(ai_response) > 1000:
+                    logger.info(f"AI完整响应: {ai_response}")
                 
                 # 尝试解析JSON
                 try:
@@ -117,12 +125,32 @@ class UserProfileExtractor:
                     if ai_response.endswith("```"):
                         ai_response = ai_response[:-3]
                     
+                    # 清理响应中的额外空白字符
+                    ai_response = ai_response.strip()
+                    
                     # 尝试找到JSON的开始和结束位置
                     start_pos = ai_response.find('{')
                     end_pos = ai_response.rfind('}')
                     
+                    logger.info(f"JSON位置: 开始={start_pos}, 结束={end_pos}")
+                    
                     if start_pos != -1 and end_pos != -1 and end_pos > start_pos:
                         json_str = ai_response[start_pos:end_pos+1]
+                        logger.info(f"提取的JSON字符串长度: {len(json_str)}")
+                        
+                        # 验证JSON括号匹配
+                        brace_count = json_str.count('{') - json_str.count('}')
+                        bracket_count = json_str.count('[') - json_str.count(']')
+                        
+                        if brace_count != 0 or bracket_count != 0:
+                            logger.warning(f"JSON括号不匹配: 大括号差={brace_count}, 方括号差={bracket_count}")
+                            # 尝试修复截断的JSON
+                            if brace_count > 0:
+                                json_str += '}' * brace_count
+                            if bracket_count > 0:
+                                json_str += ']' * bracket_count
+                            logger.info("尝试修复JSON括号...")
+                        
                         parsed_result = json.loads(json_str)
                         logger.info("✅ 用户画像分析成功")
                         logger.info(f"提取到 {len(parsed_result.get('user_profiles', []))} 个用户画像")
