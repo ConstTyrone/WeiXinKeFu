@@ -56,6 +56,8 @@ class WeWorkClient:
         # 签名验证失败时记录错误
         if sha1_hash != signature:
             logger.error(f"签名验证失败 - 期望: {signature}, 实际: {sha1_hash}")
+            logger.error(f"参数详情 - token: {self.config.token}, timestamp: {timestamp}, nonce: {nonce}, encrypt_msg: {encrypt_msg}")
+            logger.error(f"排序后的参数: {sorted_params}")
         
         return sha1_hash == signature
     
@@ -127,8 +129,16 @@ class WeWorkClient:
             logger.error(f"解密过程出错: {e}", exc_info=True)
             raise Exception(f"消息解密失败: {e}")
 
-    def sync_kf_messages(self, token=None, open_kf_id=None, limit=100, use_cursor=False):
-        """同步微信客服消息，只返回最近的100条消息"""
+    def sync_kf_messages(self, token=None, open_kf_id=None, limit=100, get_latest_only=False):
+        """
+        同步微信客服消息
+        
+        Args:
+            token: 回调事件返回的token
+            open_kf_id: 客服账号ID
+            limit: 每次拉取的消息数量
+            get_latest_only: 是否只获取最新消息（会使用cursor增量拉取）
+        """
         import logging
         logger = logging.getLogger(__name__)
         
@@ -141,52 +151,143 @@ class WeWorkClient:
             # 构造请求URL
             url = f"https://qyapi.weixin.qq.com/cgi-bin/kf/sync_msg?access_token={access_token}"
             
-            # 构造请求参数
-            payload = {
-                "token": token,
-                "limit": limit
-            }
-            
-            # 如果指定了客服账号ID，则添加到请求参数中
-            if open_kf_id:
-                payload["open_kfid"] = open_kf_id
-                
-            # 如果需要使用游标，则添加到请求参数中
             cursor_key = open_kf_id or "default"
-            if use_cursor and cursor_key in self._kf_cursors:
-                payload["cursor"] = self._kf_cursors[cursor_key]
-                logger.info(f"使用现有游标: {self._kf_cursors[cursor_key]}")
             
-            logger.info(f"调用sync_msg接口: {url}")
-            logger.info(f"请求参数: {payload}")
-            
-            # 发送POST请求
-            response = requests.post(url, json=payload)
-            result = response.json()
-            
-            # 检查是否有错误
-            if result.get("errcode") != 0:
-                raise Exception(f"sync_msg接口调用失败: {result.get('errmsg')}")
-            
-            # 更新游标（如果需要使用游标）
-            if use_cursor and "next_cursor" in result:
-                old_cursor = self._kf_cursors.get(cursor_key, "None")
-                new_cursor = result["next_cursor"]
-                self._kf_cursors[cursor_key] = new_cursor
-                logger.info(f"更新游标: {old_cursor} -> {new_cursor}")
-                if old_cursor == new_cursor:
-                    logger.warning("游标未更新，可能没有新消息或游标机制异常")
-            
-            # 处理消息列表
-            msg_list = result.get("msg_list", [])
-            logger.info(f"通过sync_msg接口获取消息成功，共收到{len(msg_list)}条消息")
-            
-            # 对消息列表进行倒序处理，确保返回最新的消息
-            msg_list.reverse()
-            logger.info("消息列表已倒序处理，确保返回最新的消息")
-            
-            # 返回消息列表，让调用者决定如何处理
-            return msg_list
+            # 如果只获取最新消息，使用最优策略
+            if get_latest_only:
+                # 策略1: 使用游标增量拉取（如果有记录的游标）
+                if cursor_key in self._kf_cursors and self._kf_cursors[cursor_key]:
+                    # 使用记录的游标进行增量拉取
+                    payload = {
+                        "token": token,
+                        "limit": limit,
+                        "cursor": self._kf_cursors[cursor_key]
+                    }
+                    if open_kf_id:
+                        payload["open_kfid"] = open_kf_id
+                    
+                    logger.info(f"使用游标增量拉取最新消息: {self._kf_cursors[cursor_key]}")
+                    logger.info(f"调用sync_msg接口: {url}")
+                    logger.info(f"请求参数: {payload}")
+                    
+                    # 发送POST请求
+                    response = requests.post(url, json=payload)
+                    result = response.json()
+                    
+                    # 检查是否有错误
+                    if result.get("errcode") != 0:
+                        raise Exception(f"sync_msg接口调用失败: {result.get('errmsg')}")
+                    
+                    # 更新游标
+                    if "next_cursor" in result:
+                        old_cursor = self._kf_cursors.get(cursor_key, "None")
+                        new_cursor = result["next_cursor"]
+                        self._kf_cursors[cursor_key] = new_cursor
+                        logger.info(f"更新游标: {old_cursor} -> {new_cursor}")
+                    
+                    # 处理消息列表
+                    msg_list = result.get("msg_list", [])
+                    logger.info(f"通过sync_msg接口获取消息成功，共收到{len(msg_list)}条消息")
+                    
+                    if not msg_list:
+                        logger.info("没有新消息")
+                        return []
+                    
+                    # 对于增量拉取，API返回的就是从上次cursor之后的新消息
+                    # 按时间排序，取最新的一条
+                    msg_list.sort(key=lambda x: x.get('send_time', 0), reverse=True)
+                    latest_message = msg_list[0]
+                    logger.info(f"增量拉取到最新消息: {latest_message.get('msgid', '')} (时间: {latest_message.get('send_time', 0)})")
+                    return [latest_message]
+                else:
+                    # 策略2: 如果没有记录的游标，使用limit=1直接拉取最新消息
+                    logger.info("首次拉取或无游标记录，使用limit=1直接拉取最新消息")
+                    payload = {
+                        "token": token,
+                        "limit": 1  # 强制使用limit=1获取最新消息
+                    }
+                    if open_kf_id:
+                        payload["open_kfid"] = open_kf_id
+                    
+                    logger.info(f"调用sync_msg接口: {url}")
+                    logger.info(f"请求参数: {payload}")
+                    
+                    # 发送POST请求
+                    response = requests.post(url, json=payload)
+                    result = response.json()
+                    
+                    # 检查是否有错误
+                    if result.get("errcode") != 0:
+                        raise Exception(f"sync_msg接口调用失败: {result.get('errmsg')}")
+                    
+                    # 更新游标
+                    if "next_cursor" in result:
+                        old_cursor = self._kf_cursors.get(cursor_key, "None")
+                        new_cursor = result["next_cursor"]
+                        self._kf_cursors[cursor_key] = new_cursor
+                        logger.info(f"更新游标: {old_cursor} -> {new_cursor}")
+                    
+                    # 处理消息列表
+                    msg_list = result.get("msg_list", [])
+                    logger.info(f"通过sync_msg接口获取消息成功，共收到{len(msg_list)}条消息")
+                    
+                    if not msg_list:
+                        logger.info("没有新消息")
+                        return []
+                    
+                    # 按时间排序，取最新的一条
+                    msg_list.sort(key=lambda x: x.get('send_time', 0), reverse=True)
+                    latest_message = msg_list[0] if msg_list else None
+                    if latest_message:
+                        logger.info(f"直接拉取到最新消息: {latest_message.get('msgid', '')} (时间: {latest_message.get('send_time', 0)})")
+                        return [latest_message]
+                    else:
+                        logger.info("未获取到消息")
+                        return []
+            else:
+                # 普通拉取模式
+                payload = {
+                    "token": token,
+                    "limit": limit
+                }
+                if open_kf_id:
+                    payload["open_kfid"] = open_kf_id
+                
+                # 如果有游标记录，也使用游标
+                if cursor_key in self._kf_cursors and self._kf_cursors[cursor_key]:
+                    payload["cursor"] = self._kf_cursors[cursor_key]
+                    logger.info(f"使用游标进行普通拉取: {self._kf_cursors[cursor_key]}")
+                
+                logger.info(f"调用sync_msg接口: {url}")
+                logger.info(f"请求参数: {payload}")
+                
+                # 发送POST请求
+                response = requests.post(url, json=payload)
+                result = response.json()
+                
+                # 检查是否有错误
+                if result.get("errcode") != 0:
+                    raise Exception(f"sync_msg接口调用失败: {result.get('errmsg')}")
+                
+                # 更新游标
+                if "next_cursor" in result:
+                    old_cursor = self._kf_cursors.get(cursor_key, "None")
+                    new_cursor = result["next_cursor"]
+                    self._kf_cursors[cursor_key] = new_cursor
+                    logger.info(f"更新游标: {old_cursor} -> {new_cursor}")
+                
+                # 处理消息列表
+                msg_list = result.get("msg_list", [])
+                logger.info(f"通过sync_msg接口获取消息成功，共收到{len(msg_list)}条消息")
+                
+                if not msg_list:
+                    logger.info("没有新消息")
+                    return []
+                
+                # 普通拉取，按时间倒序排列，最新的在前面
+                msg_list.sort(key=lambda x: x.get('send_time', 0), reverse=True)
+                logger.info("消息列表已按时间倒序排列，最新的在前面")
+                return msg_list
             
         except Exception as e:
             logger.error(f"sync_kf_messages处理失败: {e}", exc_info=True)
@@ -264,7 +365,7 @@ class WeWorkClient:
                     "content": content
                 }
             }
-            
+                        
             logger.info(f"发送文本消息: {url}")
             logger.info(f"请求参数: {payload}")
             
@@ -283,5 +384,8 @@ class WeWorkClient:
         except Exception as e:
             logger.error(f"发送文本消息失败: {e}", exc_info=True)
             raise Exception(f"发送文本消息失败: {e}")
+    
+   
+            
 
 wework_client = WeWorkClient(config)

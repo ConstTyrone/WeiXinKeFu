@@ -10,13 +10,19 @@ This is a FastAPI-based webhook service for integrating with WeWork (企业微�
 
 ## Architecture
 
-The application follows a modular structure:
+The application follows a clean, unified message processing architecture:
 
+**Core Processing Flow**: 用户消息 → 解密 → 分类 → 转换为纯文本 → AI提取用户画像 → 存储画像数据
+
+### Core Modules:
 - `main.py`: FastAPI application with endpoints for WeWork/WeChat callback verification and message handling
 - `wework_client.py`: WeWork/WeChat API client for token management, signature verification, message decryption, and message synchronization
+- `message_handler.py`: **Unified message processing pipeline** - orchestrates the entire user profile extraction flow
+- `message_classifier.py`: Message classification logic that categorizes incoming messages into types
+- `message_formatter.py`: **Text Extractor** - Converts all message types (text, voice, files, chat records) to pure text for AI analysis
+- `media_processor.py`: **NEW** - Handles speech-to-text, file content extraction (word/pdf/excel/txt), and media download
+- `ai_service.py`: **User Profile Extractor** - Analyzes text content and extracts detailed user profiles using Qwen API
 - `config/config.py`: Configuration management using environment variables
-- `message_classifier.py`: Message classification logic that categorizes incoming messages
-- `message_handler.py`: Message processing logic for different message types
 - `run.py`: Application startup script
 
 ### Key Components
@@ -26,14 +32,52 @@ The application follows a modular structure:
    - Handles signature verification and message decryption for secure communication
    - Supports both Enterprise WeChat (direct message delivery) and WeChat Customer Service (event-driven message sync)
    - Manages access tokens for API calls
-2. **Message Classification**:
+2. **User Profile Extraction Pipeline**:
 
-   - Automatically categorizes messages into types (chat records, contact info, commands, images, files, voice, video, location, links, miniprograms, events)
-   - Supports both Enterprise WeChat and WeChat Customer Service message formats
-3. **Message Processing**:
-
-   - Different handlers for each message type with appropriate business logic
+   - **Classification**: Automatically categorizes messages into standardized types (text, image, file, voice, video, location, link, miniprogram, chat_record, event, command)
+   - **Text Extraction**: Converts all message types to pure text format for AI analysis
+     - Text messages: Direct content extraction
+     - Voice messages: Speech-to-text conversion
+     - Files: Content extraction from Word/PDF/Excel/TXT documents
+     - Chat records: Structured conversation parsing with participant analysis
+     - Images: OCR text recognition (framework ready)
+   - **AI Analysis**: Feeds extracted text to Qwen (通义千问) API for user profile extraction
+   - **Profile Generation**: Extracts detailed user information including name, age, location, occupation, personality, etc.
    - Special handling for WeChat Customer Service events that require calling sync_msg API to retrieve actual message content
+
+3. **Multi-Media Content Processing**:
+
+   - **Speech Recognition**: Framework for converting voice messages to text (ready for API integration)
+   - **Document Processing**: Support for extracting text from common file formats
+     - TXT files: Multi-encoding support (UTF-8, GBK, GB2312)
+     - Word documents: Ready for python-docx integration
+     - PDF files: Ready for PyPDF2/pdfplumber integration  
+     - Excel files: Ready for openpyxl integration
+   - **Media Download**: Automatic downloading of media files via MediaID for processing
+   - **OCR Integration**: Framework ready for image text recognition
+
+## User Profile Extraction
+
+The system extracts the following user profile information:
+
+1. **姓名（主键）** - Primary identifier, required field
+2. **性别** - Male/Female/Unknown
+3. **年龄** - Specific age or age range
+4. **电话** - Phone number or other contact information
+5. **所在地（常驻地）** - City or region of residence
+6. **婚育** - Marital and parental status (已婚已育/已婚未育/未婚/离异/未知)
+7. **学历（学校）** - Education level and institutions
+8. **公司（行业）** - Current company and industry
+9. **职位** - Current position or job title
+10. **资产水平** - Asset level (High/Medium/Low/Unknown)
+11. **性格** - Personality traits and characteristics
+
+### Supported Input Types for Profile Extraction:
+- **Text Messages**: Direct analysis of user conversations
+- **Voice Messages**: Speech-to-text → profile extraction  
+- **Chat Records**: Multi-participant conversation analysis
+- **Files**: Content extraction from documents for profile information
+- **Combined Analysis**: Intelligent analysis across multiple message types
 
 ## Common Development Tasks
 
@@ -189,8 +233,32 @@ Create a `.env` file with the following variables:
 4. Service verifies signature and decrypts event content
 5. Parses XML event notification
 6. Identifies as WeChat Customer Service event (MsgType=event, Event=kf_msg_or_event)
-7. Calls sync_msg API to retrieve actual message content
-8. Classifies and processes message by type
+7. Calls sync_msg API with limit=1 to retrieve the latest message only
+8. Converts message format and classifies message by type
+9. Extracts text content and sends to AI for user profile analysis
+10. Formats AI analysis results and sends back to user via WeChat API
+
+## Recent Bug Fixes (2025-08-01)
+
+### Critical Message Sync Issues Fixed:
+1. **Fixed oldest vs newest message problem**: Previously was reading oldest 20 messages instead of newest
+2. **Simplified sync logic**: Removed complex pagination optimization that was causing errors
+3. **Single message processing**: Now only processes the latest message each time (limit=1)
+4. **Added user reply mechanism**: AI analysis results are now sent back to users automatically
+5. **Improved message ordering**: When limit=1, uses max() by send_time to ensure we get the actual newest message
+
+### Key Changes Made:
+- **message_handler.py**: 
+  - Simplified `handle_wechat_kf_event()` to use direct sync with limit=1
+  - Added `process_message_and_get_result()` function that returns formatted text for user replies
+  - Added automatic message sending back to users with AI analysis results
+- **wework_client.py**: 
+  - Fixed `sync_kf_messages()` to properly handle limit=1 case
+  - When limit=1, uses max() by send_time to get the actual newest message
+  - Removed problematic message list reversal logic
+- **main.py**: 
+  - Removed dependency on broken message_sync_optimizer
+  - Simplified sync status endpoint
 
 ## Platform Differences
 

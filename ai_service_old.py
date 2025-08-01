@@ -1,4 +1,4 @@
-# ai_service_v2.py
+# ai_service.py
 import requests
 import json
 from config.config import config
@@ -6,9 +6,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class UserProfileExtractor:
-    """用户画像提取器 - 基于文本内容分析用户画像"""
-    
+class QwenService:
     def __init__(self):
         self.api_key = config.qwen_api_key
         self.api_endpoint = config.qwen_api_endpoint
@@ -17,21 +15,21 @@ class UserProfileExtractor:
             'Content-Type': 'application/json'
         }
     
-    def extract_user_profile(self, text_content: str) -> dict:
+    def process_message(self, message_content):
         """
-        从文本内容中提取用户画像
+        使用通义千问处理消息内容，总结消息并提取身份信息
         
         Args:
-            text_content (str): 从消息中提取的纯文本内容
+            message_content (str): 用户发送的消息内容
             
         Returns:
-            dict: 包含用户画像信息的字典
+            dict: 包含消息总结和身份信息的字典
         """
         try:
-            # 构造用户画像提取的提示词
+            # 构造提示词
             prompt = f"""
             请分析以下用户消息，并构建详细的用户画像：
-            "{text_content}"
+            "{message_content}"
             
             请从消息中提取以下用户画像信息：
             
@@ -72,8 +70,6 @@ class UserProfileExtractor:
             2. 只提取消息中明确提到的信息，不要推测
             3. 如果消息中提到了多个人物，请为每个人物创建一个用户画像
             4. summary字段请用简短语言总结消息的主要内容
-            5. 特别关注聊天记录中的个人信息，如姓名、年龄、工作、居住地等
-            6. 从语音转换的文字、文件内容、图片OCR结果中提取有价值的用户信息
             """
             
             # 构造请求数据
@@ -85,16 +81,14 @@ class UserProfileExtractor:
                 "temperature": 0.7
             }
             
-            logger.info("正在调用通义千问API分析用户画像")
-            logger.info(f"文本内容长度: {len(text_content)} 字符")
-            logger.info(f"文本内容预览: {text_content[:200]}...")
-            
             # 发送请求到通义千问API
+            logger.info("正在调用通义千问API处理消息")
+            logger.info(f"发送给AI的消息内容预览: {message_content[:100]}...")
             response = requests.post(
                 f"{self.api_endpoint}/chat/completions",
                 headers=self.headers,
                 data=json.dumps(data),
-                timeout=30
+                timeout=30  # 设置30秒超时
             )
             
             # 检查响应状态
@@ -124,14 +118,8 @@ class UserProfileExtractor:
                     if start_pos != -1 and end_pos != -1 and end_pos > start_pos:
                         json_str = ai_response[start_pos:end_pos+1]
                         parsed_result = json.loads(json_str)
-                        logger.info("✅ 用户画像分析成功")
-                        logger.info(f"提取到 {len(parsed_result.get('user_profiles', []))} 个用户画像")
-                        
-                        return {
-                            "success": True,
-                            "data": parsed_result,
-                            "error": None
-                        }
+                        logger.info("✅ AI响应解析成功")
+                        return parsed_result
                     else:
                         raise json.JSONDecodeError("No valid JSON found", ai_response, 0)
                         
@@ -140,48 +128,29 @@ class UserProfileExtractor:
                     logger.warning("无法解析AI响应为JSON格式")
                     logger.warning(f"原始AI响应: {original_response}")
                     return {
-                        "success": False,
-                        "data": {
-                            "summary": "AI处理完成，但无法解析详细结果",
-                            "user_profiles": []
-                        },
-                        "error": "JSON解析失败"
+                        "summary": "AI处理完成，但无法解析详细结果",
+                        "user_profiles": []
                     }
             else:
-                error_msg = f"通义千问API调用失败，状态码: {response.status_code}"
-                logger.error(error_msg)
+                logger.error(f"通义千问API调用失败，状态码: {response.status_code}")
                 logger.error(f"响应内容: {response.text}")
                 return {
-                    "success": False,
-                    "data": {
-                        "summary": "AI处理失败",
-                        "user_profiles": []
-                    },
-                    "error": error_msg
+                    "summary": "AI处理失败",
+                    "user_profiles": []
                 }
                 
         except requests.exceptions.Timeout:
-            error_msg = "通义千问API调用超时"
-            logger.error(error_msg)
+            logger.error("通义千问API调用超时")
             return {
-                "success": False,
-                "data": {
-                    "summary": "AI处理超时",
-                    "user_profiles": []
-                },
-                "error": error_msg
+                "summary": "AI处理超时",
+                "user_profiles": []
             }
         except Exception as e:
-            error_msg = f"处理消息时发生错误: {e}"
-            logger.error(error_msg, exc_info=True)
+            logger.error(f"处理消息时发生错误: {e}")
             return {
-                "success": False,
-                "data": {
-                    "summary": "处理失败",
-                    "user_profiles": []
-                },
-                "error": error_msg
+                "summary": "处理过程中发生错误",
+                "user_profiles": []
             }
 
-# 全局用户画像提取器实例
-profile_extractor = UserProfileExtractor()
+# 全局实例
+qwen_service = QwenService()

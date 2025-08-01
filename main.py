@@ -25,22 +25,28 @@ logger = logging.getLogger(__name__)
 @app.get("/wework/callback")
 async def wework_verify(msg_signature: str, timestamp: str, nonce: str, echostr: str):
     """微信客服/企业微信验证回调"""
+    import urllib.parse
     logger.info(f"URL验证请求")
+    logger.info(f"参数详情 - msg_signature: {msg_signature}, timestamp: {timestamp}, nonce: {nonce}, echostr: {echostr}")
     
     try:
+        # URL解码echostr
+        echostr_decoded = urllib.parse.unquote(echostr)
+        logger.info(f"解码后的echostr: {echostr_decoded}")
+        
         # 验证签名 - 微信客服URL验证不包含echostr参数
         # 为了兼容两种平台，我们尝试两种方式
         is_valid = wework_client.verify_signature(msg_signature, timestamp, nonce)
         # 如果标准验证失败，尝试包含echostr的验证（企业微信可能需要）
         if not is_valid:
-            is_valid = wework_client.verify_signature(msg_signature, timestamp, nonce, echostr)
+            is_valid = wework_client.verify_signature(msg_signature, timestamp, nonce, echostr_decoded)
         
         if not is_valid:
             logger.error("签名验证失败")
             raise HTTPException(status_code=400, detail="签名验证失败")
         
         # 解密echostr
-        decrypted = wework_client.decrypt_message(echostr)
+        decrypted = wework_client.decrypt_message(echostr_decoded)
         logger.info("URL验证成功")
         
         # 微信客服/企业微信回调验证需要返回解密后的明文
@@ -113,6 +119,23 @@ async def root():
 async def test_endpoint(request: Request):
     """测试接口"""
     return {"status": "success", "message": "测试成功"}
+
+# 添加消息同步状态查看接口
+@app.get("/sync/status")
+async def get_sync_status():
+    """查看消息同步状态"""
+    try:
+        return {
+            "status": "success",
+            "message": "消息同步功能已简化，直接获取最新消息",
+            "sync_method": "简化版 - 每次仅获取最新1条消息"
+        }
+    except Exception as e:
+        logger.error(f"获取同步状态失败: {e}")
+        return {
+            "status": "error", 
+            "message": str(e)
+        }
 
 # 添加微信回调的路由，以兼容不同的回调地址
 @app.get("/wechat/callback")
