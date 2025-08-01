@@ -23,64 +23,36 @@ def classify_and_handle_message(message: Dict[str, Any]):
     try:
         user_id = message.get('FromUserName')
         
-        # 记录原始消息内容用于调试
-        msg_type = message.get('MsgType', 'unknown')
-        content = message.get('Content', '')
-        logger.info(f"原始消息信息 - 用户: {user_id}, 类型: {msg_type}, 内容: {content[:100]}...")
-        print(f"📝 原始消息信息 - 用户: {user_id}, 类型: {msg_type}")
-        print(f"   内容预览: {content[:100]}...")
         
         # 分类消息
         message_type = classifier.classify_message(message)
         
-        # 记录分类结果
-        logger.info(f"用户 {user_id} 发送了 {message_type} 类型的消息")
-        print(f"🔍 用户 {user_id} 发送了 {message_type} 类型的消息")
+        print(f"🔍 {message_type}消息 - 用户: {user_id}")
         
         # 根据分类结果处理
         if message_type == 'command':
-            logger.info("调用 handle_command")
-            print("⌨️ 处理命令消息")
             handle_command(message)
         elif message_type == 'image':
-            logger.info("调用 handle_image")
-            print("🖼️ 处理图片消息")
             handle_image(message)
         elif message_type == 'file':
-            logger.info("调用 handle_file")
-            print("📁 处理文件消息")
             handle_file(message)
         elif message_type == 'voice':
-            logger.info("调用 handle_voice")
-            print("🎤 处理语音消息")
             handle_voice(message)
         elif message_type == 'video':
-            logger.info("调用 handle_video")
-            print("🎥 处理视频消息")
             handle_video(message)
         elif message_type == 'location':
-            logger.info("调用 handle_location")
-            print("📍 处理位置消息")
             handle_location(message)
         elif message_type == 'link':
-            logger.info("调用 handle_link")
-            print("🔗 处理链接消息")
             handle_link(message)
         elif message_type == 'miniprogram':
-            logger.info("调用 handle_miniprogram")
-            print("📱 处理小程序消息")
             handle_miniprogram(message)
+        elif message_type == 'chat_record':
+            handle_chat_record(message)
         elif message_type == 'general_text':
-            logger.info("调用 handle_general_text")
-            print("🤖 开始调用AI处理文本消息")
             handle_general_text(message)
         elif message_type == 'event':
-            logger.info("调用 handle_event")
-            print("⚡ 处理事件消息")
             handle_event(message)
         else:
-            logger.info("调用 handle_unknown")
-            print("❓ 处理未知类型消息")
             handle_unknown(message)
             
         print(f"✅ 消息处理完成 - 类型: {message_type}")
@@ -343,21 +315,15 @@ def handle_wechat_kf_event(message: Dict[str, Any]):
         
         # 直接选择最新的消息（倒序后第一条）
         latest_msg = messages[0]
-        logger.info(f"处理最新消息: {latest_msg}")
         content_preview = latest_msg.get('text', {}).get('content', '无内容')
-        print(f"处理最新消息: {content_preview}")
         
         # 将微信客服消息格式转换为内部格式
         converted_msg = wework_client._convert_kf_message(latest_msg)
         if converted_msg:
             logger.info(f"消息转换成功: {converted_msg}")
             # 添加调试日志
-            logger.info(f"转换后的消息类型: {converted_msg.get('MsgType')}")
-            logger.info(f"转换后的消息内容: {converted_msg.get('Content', '')[:100]}...")
-            print(f"✅ 消息转换成功: {converted_msg.get('Content', '')[:50]}...")
             
             # 分类并处理消息
-            print("🔍 开始分类并处理消息...")
             classify_and_handle_message(converted_msg)
             print("✅ 消息分类处理完成")
         else:
@@ -412,3 +378,26 @@ def handle_miniprogram(message: Dict[str, Any]):
     print(f"标题: {title}")
     print(f"AppId: {app_id}")
     print(f"页面路径: {page_path}")
+
+
+def handle_chat_record(message: Dict[str, Any]):
+    """处理聊天记录消息(merged_msg)"""
+    user_id = message.get('FromUserName')
+    merged_msg = message.get('merged_msg', {})
+    title = merged_msg.get('title', '')
+    items = merged_msg.get('item', [])
+    
+    print(f"[聊天记录] 用户: {user_id}")
+    print(f"标题: {title}")
+    print(f"包含 {len(items)} 条消息记录")
+    
+    # 简要显示聊天记录内容
+    for i, item in enumerate(items[:3]):  # 只显示前3条
+        sender_name = item.get('sender_name', '未知')
+        msg_content = item.get('msg_content', '')
+        print(f"  [{i+1}] {sender_name}: {msg_content[:30]}...")
+    
+    if len(items) > 3:
+        print(f"  ... 还有 {len(items) - 3} 条消息")
+    
+    print("✅ 聊天记录已接收处理")

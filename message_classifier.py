@@ -12,7 +12,6 @@ class MessageClassifier:
         msg_type = message.get('MsgType', '').lower()
         content = message.get('Content', '')
         
-        print(f"收到消息 - 类型: {msg_type}, 内容: {content[:50]}...")
         
         if msg_type == 'text':
             return self.classify_text_message(content)
@@ -30,6 +29,8 @@ class MessageClassifier:
             return 'link'
         elif msg_type == 'miniprogram':
             return 'miniprogram'
+        elif msg_type == 'merged_msg':
+            return 'chat_record'
         elif msg_type == 'event':
             return 'event'
         else:
@@ -38,17 +39,12 @@ class MessageClassifier:
     def classify_text_message(self, content: str) -> str:
         """文本消息分类"""
         content = content.strip()
-        print(f"🔍 开始文本消息分类，内容预览: {content[:50]}...")
         
         # 1. 检查是否为命令
-        is_cmd = self.is_command(content)
-        print(f"   检查是否为命令: {is_cmd}")
-        if is_cmd:
-            print("   📝 分类结果: command")
+        if self.is_command(content):
             return 'command'
         
         # 2. 其他文本（不再区分聊天记录和联系人信息）
-        print("   📝 分类结果: general_text")
         return 'general_text'
     
     def is_command(self, content: str) -> bool:

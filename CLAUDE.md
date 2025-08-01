@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-请注意在实现任何有关微信客服时，查看wenxin_doc文件夹中的文档
+请注意在实现任何有关微信客服时，查看weixin_doc文件夹中的文档
 
 ## Project Overview
 
@@ -109,31 +109,49 @@ To add support for new message types:
 
 ## Commands for Development
 
-### Running the Application
-
-```bash
-# Run with uvicorn directly
-uvicorn main:app --host 0.0.0.0 --port 3001 --reload
-
-# Or run with the provided script
-python run.py
-```
-
 ### Installing Dependencies
-
 ```bash
 pip install -r requirements.txt
 ```
 
-### Environment Variables
+### Running the Application
+```bash
+# Method 1: Using uvicorn directly (recommended for development)
+uvicorn main:app --host 0.0.0.0 --port 3001 --reload
 
+# Method 2: Using run script
+python run.py
+```
+
+### Testing
+```bash
+# Test callback verification
+python tests/test_callback_verification.py
+
+# Test signature verification  
+python tests/test_wework_signature.py
+
+# Test message callback
+python tests/test_message_callback.py
+```
+
+### Debug Tools
+```bash
+# Debug WeWork callback verification
+python utils/debug_wework_callback.py
+
+# Check port usage
+python utils/check_port.py
+```
+
+### Environment Variables
 Create a `.env` file with the following variables:
-- WEWORK_CORP_ID=your_corp_id
-- WEWORK_AGENT_ID=your_agent_id
-- WEWORK_SECRET=your_secret
+- WEWORK_CORP_ID=your_corp_id (企业ID/微信客服企业ID)
+- WEWORK_AGENT_ID=your_agent_id (企业微信应用ID，微信客服可不填)
+- WEWORK_SECRET=your_secret (企业微信应用密钥/微信客服Secret)
 - WEWORK_TOKEN=your_token
 - WEWORK_AES_KEY=your_aes_key
-- LOCAL_SERVER_PORT=3001
+- LOCAL_SERVER_PORT=3001 (optional, defaults to 3001)
 - QWEN_API_KEY=your_qwen_api_key
 - QWEN_API_ENDPOINT=https://dashscope.aliyuncs.com/compatible-mode/v1
 
@@ -173,3 +191,19 @@ Create a `.env` file with the following variables:
 6. Identifies as WeChat Customer Service event (MsgType=event, Event=kf_msg_or_event)
 7. Calls sync_msg API to retrieve actual message content
 8. Classifies and processes message by type
+
+## Platform Differences
+
+**Enterprise WeChat vs WeChat Customer Service:**
+
+- **Enterprise WeChat**: Direct message delivery - complete message content is sent in the callback
+- **WeChat Customer Service**: Event-driven message sync - callback only sends event notification, requiring sync_msg API call to retrieve actual message content
+
+## Supported Message Types
+
+**Enterprise WeChat**: text, image, voice, video, file, location, link, miniprogram, event
+**WeChat Customer Service**: text, image, voice, video, file, location, link, miniprogram, msgmenu, event (enter_session, msg_send_fail, user_recall_msg)
+
+## Configuration Notes
+
+For WeChat Customer Service, use the WeChat Customer Service enterprise ID for WEWORK_CORP_ID and WeChat Customer Service Secret for WEWORK_SECRET. WEWORK_AGENT_ID can be left empty for WeChat Customer Service.

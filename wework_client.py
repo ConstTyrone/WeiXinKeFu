@@ -53,20 +53,9 @@ class WeWorkClient:
         sorted_params = ''.join(params)
         sha1_hash = hashlib.sha1(sorted_params.encode()).hexdigest()
         
-        # 添加详细的调试信息
-        logger.info(f"=== 签名验证详情 ===")
-        logger.info(f"平台类型: {'微信客服' if '客服' in str(type(self)) else '企业微信'}")
-        logger.info(f"Token: {self.config.token}")
-        logger.info(f"Timestamp: {timestamp}")
-        logger.info(f"Nonce: {nonce}")
-        logger.info(f"Encrypt_msg: {encrypt_msg}")
-        logger.info(f"排序前参数: {[self.config.token, timestamp, nonce] + ([encrypt_msg] if encrypt_msg else [])}")
-        logger.info(f"排序后参数: {params}")
-        logger.info(f"连接后字符串: {sorted_params}")
-        logger.info(f"计算出的签名: {sha1_hash}")
-        logger.info(f"期望的签名: {signature}")
-        logger.info(f"签名匹配结果: {sha1_hash == signature}")
-        logger.info(f"==================")
+        # 签名验证失败时记录错误
+        if sha1_hash != signature:
+            logger.error(f"签名验证失败 - 期望: {signature}, 实际: {sha1_hash}")
         
         return sha1_hash == signature
     
@@ -74,43 +63,32 @@ class WeWorkClient:
         """解密消息"""
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f"开始解密消息: {encrypt_msg[:50]}...")
         
         try:
             # Base64解码
             msg_bytes = base64.b64decode(encrypt_msg)
-            logger.info(f"Base64解码后长度: {len(msg_bytes)} 字节")
             
             # 解码AES密钥
             key = base64.b64decode(self.config.encoding_aes_key + '=')
-            logger.info(f"AES密钥长度: {len(key)} 字节")
             
             # 提取IV（前16字节）
             iv = msg_bytes[:16]
-            logger.info(f"IV: {iv.hex()}")
             
             # 提取加密数据（16字节之后的部分）
             encrypted_data = msg_bytes[16:]
-            logger.info(f"加密数据长度: {len(encrypted_data)} 字节")
             
             # 创建AES解密器
             cipher = AES.new(key, AES.MODE_CBC, iv)
             
             # 解密数据
             decrypted = cipher.decrypt(encrypted_data)
-            logger.info(f"解密后数据长度: {len(decrypted)} 字节")
-            logger.info(f"解密后数据前50字节: {decrypted[:50]}")
-            logger.info(f"解密后数据(十六进制): {decrypted.hex()}")
             
             # 尝试去除PKCS#7填充
             try:
                 decrypted = unpad(decrypted, AES.block_size)
-                logger.info(f"去除填充后数据长度: {len(decrypted)} 字节")
-                logger.info(f"去除填充后数据前50字节: {decrypted[:50]}")
             except ValueError as pad_error:
                 logger.warning(f"去除填充失败: {pad_error}")
                 # 如果去除填充失败，尝试直接使用解密后的数据
-                logger.info("将直接使用解密后的数据进行解析")
             
             # 提取消息内容
             # 根据微信平台文档：前16字节为随机字符串，接着4字节为消息长度，后面是消息内容
@@ -121,37 +99,28 @@ class WeWorkClient:
             
             # 尝试标准格式解析
             content_length = int.from_bytes(decrypted[16:20], byteorder='big')
-            logger.info(f"按标准格式解析的消息内容长度: {content_length}")
             
             # 检查长度是否合理
             if content_length > 0 and content_length < len(decrypted) - 20:
                 content = decrypted[20:20+content_length].decode('utf-8')
-                logger.info(f"使用标准格式解密成功，内容长度: {content_length}")
-                logger.info(f"解密内容预览: {content[:50]}...")
                 return content
             
             # 如果标准格式失败，尝试另一种可能的格式
             # 直接使用前4字节作为长度（微信客服可能使用这种格式）
             alternative_length = int.from_bytes(decrypted[:4], byteorder='big')
-            logger.info(f"按替代格式解析的消息内容长度: {alternative_length}")
             
             if alternative_length > 0 and alternative_length < len(decrypted) - 4:
                 content = decrypted[4:4+alternative_length].decode('utf-8')
-                logger.info(f"使用替代格式解密成功，内容长度: {alternative_length}")
-                logger.info(f"解密内容预览: {content[:50]}...")
                 return content
             
             # 如果以上都失败，尝试直接返回剩余数据（特殊情况处理）
             remaining_data = decrypted[20:]  # 跳过前16字节随机字符串和4字节长度字段
             try:
                 content = remaining_data.decode('utf-8')
-                logger.info(f"使用剩余数据解密成功，内容长度: {len(content)}")
-                logger.info(f"解密内容预览: {content[:50]}...")
                 return content
             except UnicodeDecodeError:
                 # 如果还是无法解码，返回十六进制表示
                 content_hex = remaining_data.hex()
-                logger.info(f"返回十六进制数据，长度: {len(content_hex)}")
                 return content_hex
             
         except Exception as e:
@@ -254,6 +223,10 @@ class WeWorkClient:
                 converted_msg["Location_X"] = kf_msg.get("location", {}).get("latitude", "")
                 converted_msg["Location_Y"] = kf_msg.get("location", {}).get("longitude", "")
                 converted_msg["Label"] = kf_msg.get("location", {}).get("name", "")
+            elif msg_type == "merged_msg":
+                # 处理聊天记录消息
+                merged_msg_content = kf_msg.get("merged_msg", {})
+                converted_msg["merged_msg"] = merged_msg_content
             elif msg_type == "event":
                 event_content = kf_msg.get("event", {})
                 converted_msg["Event"] = event_content.get("event_type", "")
@@ -262,7 +235,6 @@ class WeWorkClient:
                 # 将事件内容添加到消息中
                 converted_msg["EventContent"] = event_content
             
-            logger.info(f"消息转换成功: {converted_msg}")
             return converted_msg
             
         except Exception as e:
