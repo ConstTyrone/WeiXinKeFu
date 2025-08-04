@@ -6,7 +6,7 @@ import requests
 import json
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
-from config.config import config
+from ..config.config import config
 
 class WeWorkClient:
     def __init__(self, config):

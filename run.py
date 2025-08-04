@@ -1,16 +1,48 @@
 #!/usr/bin/env python3
-# run.py
-import uvicorn
+"""
+微信客服用户画像系统启动脚本
+"""
+import sys
 import os
+import uvicorn
+from dotenv import load_dotenv
+
+# 添加项目根目录到Python路径
+project_root = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, project_root)
+
+# 加载环境变量
+load_dotenv()
+
+# 导入应用
+from src.core.main import app
+
+def main():
+    """启动应用"""
+    port = int(os.getenv('LOCAL_SERVER_PORT', 3001))
+    
+    print(f"""
+    🚀 微信客服用户画像系统启动中...
+    
+    📋 服务信息:
+    - 端口: {port}
+    - 环境: {'生产' if os.getenv('ENVIRONMENT') == 'production' else '开发'}
+    - API文档: http://localhost:{port}/docs
+    - 前端测试: frontend-test/index.html
+    
+    💡 提示:
+    - 按 Ctrl+C 停止服务
+    - 查看 docs/ 目录获取完整API文档
+    """)
+    
+    uvicorn.run(
+        "src.core.main:app",
+        host="0.0.0.0",
+        port=port,
+        reload=True,
+        reload_dirs=[project_root],
+        log_level="info"
+    )
 
 if __name__ == "__main__":
-    # 获取端口配置，默认为3002
-    port = int(os.getenv("LOCAL_SERVER_PORT", 3001))
-    
-    # 如果是开发环境且需要热重载，则使用导入字符串方式
-    if os.getenv("ENVIRONMENT") == "development":
-        uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
-    else:
-        # 生产环境直接导入应用
-        from main import app
-        uvicorn.run(app, host="0.0.0.0", port=port)
+    main()

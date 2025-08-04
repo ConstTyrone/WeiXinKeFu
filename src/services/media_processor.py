@@ -6,7 +6,7 @@ import logging
 import time
 import json
 from typing import Dict, List, Optional, Tuple
-from config.config import config
+from ..config.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -323,17 +323,29 @@ class AliyunASRProcessor:
         self._recognition_result = None
         self._recognition_complete = False
         self._recognition_error = None
+        self._connection_active = False
+    
+    def _reset_state(self):
+        """重置识别状态"""
+        self._recognition_result = None
+        self._recognition_complete = False
+        self._recognition_error = None
+        self._connection_active = False
+        # 清除启动确认标志
+        if hasattr(self, '_start_confirmed'):
+            delattr(self, '_start_confirmed')
         
     def _on_start(self, message, *args):
         """识别开始回调"""
-        logger.info(f"🎤 ASR识别开始: {message}")
+        logger.info("🎤 ASR识别开始")
         self._start_confirmed = True  # 标记启动确认
         self._recognition_complete = False
         self._recognition_error = None
+        self._connection_active = True  # 标记连接活跃
         
     def _on_result_changed(self, message, *args):
         """中间结果回调"""
-        logger.info(f"🔄 ASR中间结果: {message}")
+        # logger.info(f"🔄 ASR中间结果: {message}")
         try:
             result = json.loads(message)
             if result.get('header', {}).get('status') == 20000000:
@@ -343,11 +355,13 @@ class AliyunASRProcessor:
             
     def _on_completed(self, message, *args):
         """识别完成回调"""
-        logger.info(f"✅ ASR识别完成: {message}")
+        logger.info("✅ ASR识别完成")
         try:
             result = json.loads(message)
             if result.get('header', {}).get('status') == 20000000:
                 self._recognition_result = result.get('payload', {}).get('result', '')
+                if self._recognition_result:
+                    logger.info(f"📝 识别结果: {self._recognition_result}")
                 self._recognition_complete = True
             else:
                 self._recognition_error = f"ASR错误: {result.get('header', {}).get('status_text', '未知错误')}"
@@ -362,6 +376,7 @@ class AliyunASRProcessor:
     def _on_close(self, *args):
         """连接关闭回调"""
         logger.info("🔚 ASR连接关闭")
+        self._connection_active = False  # 标记连接断开
         self._recognition_complete = True
         
     def recognize_speech(self, audio_file_path: str) -> Optional[str]:
@@ -388,14 +403,11 @@ class AliyunASRProcessor:
             with open(audio_file_path, 'rb') as f:
                 audio_data = f.read()
             
-            # 重置状态
-            self._recognition_result = None
-            self._recognition_complete = False
-            self._recognition_error = None
-            self._start_confirmed = False  # 重置启动确认标志
+            # 重置识别状态
+            self._reset_state()
             
-            # 启用NLS SDK调试日志
-            nls.enableTrace(True)
+            # 启用NLS SDK调试日志（可选）
+            # nls.enableTrace(True)
             
             # 创建识别器
             sr = nls.NlsSpeechRecognizer(
@@ -420,10 +432,6 @@ class AliyunASRProcessor:
                                   enable_inverse_text_normalization=True,
                                   timeout=10)
             
-            logger.info(f"📊 start()返回结果: {start_result}")
-            
-            # start()方法是异步的，在异步模式下可能返回None，这是正常的
-            # 我们应该等待on_start回调来确认是否真正启动成功
             if start_result is False:  # 只有明确返回False才是失败
                 logger.error("调用start()失败")
                 return "[语音识别失败: 调用启动方法失败]"
@@ -436,30 +444,63 @@ class AliyunASRProcessor:
             
             if not hasattr(self, '_start_confirmed'):
                 logger.error("等待ASR启动超时")
+                sr.shutdown()  # 确保关闭连接
                 return "[语音识别失败: 启动超时]"
             
-            logger.info("✅ ASR识别真正启动成功")
+            logger.info("✅ ASR识别启动成功")
+            
+            # 再次检查连接是否仍然活跃
+            if not self._connection_active:
+                logger.error("ASR连接未激活，无法发送音频数据")
+                sr.shutdown()
+                return "[语音识别失败: 连接未激活]"
             
             # 发送音频数据（每次发送640字节）
-            slices = zip(*(iter(audio_data),) * 640)
-            for chunk in slices:
-                sr.send_audio(bytes(chunk))
-                time.sleep(0.01)  # 模拟实时发送
+            try:
+                slices = zip(*(iter(audio_data),) * 640)
+                chunk_count = 0
+                total_chunks = len(audio_data) // 640
+                
+                for chunk in slices:
+                    # 在每次发送前检查连接状态
+                    if not self._connection_active:
+                        logger.warning(f"连接在发送第{chunk_count}块时断开")
+                        break
+                        
+                    try:
+                        sr.send_audio(bytes(chunk))
+                        chunk_count += 1
+                        time.sleep(0.01)  # 模拟实时发送
+                    except Exception as send_error:
+                        logger.error(f"发送音频数据失败: {send_error}")
+                        # 如果是连接问题，停止发送
+                        if "Need start before send" in str(send_error):
+                            return "[语音识别失败: 连接问题]"
+                        raise send_error
+                
+                logger.info(f"📊 音频数据发送完成 ({chunk_count} 块)")
+                
+                if chunk_count == 0:
+                    logger.error("未能发送任何音频数据")
+                    sr.shutdown()
+                    return "[语音识别失败: 未能发送音频数据]"
+                    
+            except Exception as send_exception:
+                logger.error(f"发送音频数据时发生异常: {send_exception}")
+                sr.shutdown()
+                return f"[语音识别失败: 发送异常 - {str(send_exception)}]"
             
             # 停止识别
-            logger.info("🛑 停止发送音频数据，等待识别结果...")
+            logger.info("🛑 等待识别结果...")
             stop_result = sr.stop(timeout=10)
-            logger.info(f"停止结果: {stop_result}")
             
             # 等待识别完成（最多等待30秒）
             wait_time = 0
             while not self._recognition_complete and not self._recognition_error and wait_time < 30:
                 time.sleep(0.1)
                 wait_time += 0.1
-                if wait_time % 5 == 0:  # 每5秒打印一次等待状态
-                    logger.info(f"⏳ 等待ASR识别中... {wait_time}秒")
-            
-            logger.info(f"🔍 等待结束: complete={self._recognition_complete}, error={self._recognition_error}, wait_time={wait_time}")
+                
+            logger.info(f"🔍 识别等待结束 ({wait_time:.1f}秒)")
             
             # 关闭连接
             sr.shutdown()
@@ -476,7 +517,7 @@ class AliyunASRProcessor:
                 return "[语音识别失败: 未识别到内容]"
                 
         except Exception as e:
-            logger.error(f"语音识别异常: {e}", exc_info=True)
+            logger.error(f"语音识别异常: {e}")
             return f"[语音识别异常: {str(e)}]"
 
 # 全局ASR处理器实例

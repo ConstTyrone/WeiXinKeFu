@@ -72,7 +72,7 @@ class MessageTextExtractor:
         
         # 使用ETL4LM接口进行图片OCR识别
         try:
-            from media_processor import media_processor
+            from ..services.media_processor import media_processor
             
             logger.info(f"🖼️ 开始图片OCR识别: {media_id}")
             ocr_text = media_processor.process_image_ocr(media_id)
@@ -108,7 +108,7 @@ class MessageTextExtractor:
         
         if file_ext in ['txt', 'doc', 'docx', 'pdf', 'xls', 'xlsx']:
             # 使用多媒体处理器提取文件内容
-            from media_processor import media_processor
+            from ..services.media_processor import media_processor
             file_content = media_processor.extract_file_content(media_id, filename)
             
             if file_content and not any(placeholder in file_content for placeholder in ["功能待实现", "解析失败", "处理异常"]):
@@ -121,7 +121,7 @@ class MessageTextExtractor:
     def _process_file_without_name(self, context: str, media_id: str) -> str:
         """处理没有文件名的文件消息（微信客服特有情况）"""
         try:
-            from media_processor import media_processor
+            from ..services.media_processor import media_processor
             
             # 先下载文件
             file_path = media_processor.download_media(media_id)
@@ -194,7 +194,7 @@ class MessageTextExtractor:
         media_id = message.get('MediaId', '')
         
         # 使用多媒体处理器进行语音转文字
-        from media_processor import media_processor
+        from ..services.media_processor import media_processor
         logger.info(f"🎤 开始处理语音消息: {media_id}")
         voice_text = media_processor.speech_to_text(media_id)
         
@@ -273,20 +273,29 @@ class MessageTextExtractor:
                 content_json = json.loads(msg_content)
                 msg_type = content_json.get('msgtype', '')
                 
+                # 调试：记录聊天记录中的消息结构
+                if msg_type in ['image', 'voice', 'file']:
+                    logger.info(f"🔍 聊天记录中的{msg_type}消息结构: {content_json}")
+                
                 if msg_type == 'text':
                     actual_content = content_json.get('text', {}).get('content', msg_content)
                 elif msg_type == 'image':
-                    actual_content = "[发送了图片]"
+                    # 处理聊天记录中的图片
+                    actual_content = self._process_chat_record_image(content_json)
                 elif msg_type == 'voice':
-                    actual_content = "[发送了语音]"
+                    # 处理聊天记录中的语音
+                    actual_content = self._process_chat_record_voice(content_json)
                 elif msg_type == 'video':
                     actual_content = "[发送了视频]" 
                 elif msg_type == 'file':
-                    actual_content = "[发送了文件]"
+                    # 处理聊天记录中的文件
+                    actual_content = self._process_chat_record_file(content_json)
                 elif msg_type == 'location':
-                    actual_content = "[分享了位置]"
+                    # 处理聊天记录中的位置信息
+                    actual_content = self._process_chat_record_location(content_json)
                 elif msg_type == 'link':
-                    actual_content = "[分享了链接]"
+                    # 处理聊天记录中的链接
+                    actual_content = self._process_chat_record_link(content_json)
                 elif msg_type == 'miniprogram':
                     actual_content = "[分享了小程序]"
                 else:
@@ -297,6 +306,127 @@ class MessageTextExtractor:
             text_content += f"{i}. {sender_name}（{time_formatted}）：{actual_content}\n"
         
         return text_content
+    
+    def _process_chat_record_image(self, content_json: Dict[str, Any]) -> str:
+        """处理聊天记录中的图片消息"""
+        try:
+            image_data = content_json.get('image', {})
+            media_id = image_data.get('media_id', '')
+            
+            if media_id:
+                logger.info(f"🖼️ 处理聊天记录中的图片: {media_id}")
+                
+                try:
+                    # 使用ETL4LM接口进行图片OCR识别
+                    from ..services.media_processor import media_processor
+                    ocr_text = media_processor.process_image_ocr(media_id)
+                    
+                    if ocr_text and not ocr_text.startswith('[图片OCR'):
+                        return f"[发送了图片，OCR识别内容：{ocr_text}]"
+                    else:
+                        return f"[发送了图片，OCR识别失败]"
+                except Exception as ocr_error:
+                    logger.warning(f"聊天记录图片OCR处理失败: {ocr_error}")
+                    return "[发送了图片，OCR处理异常]"
+            else:
+                return "[发送了图片]"
+        except Exception as e:
+            logger.error(f"处理聊天记录图片失败: {e}")
+            return "[发送了图片]"
+    
+    def _process_chat_record_voice(self, content_json: Dict[str, Any]) -> str:
+        """处理聊天记录中的语音消息"""
+        try:
+            voice_data = content_json.get('voice', {})
+            media_id = voice_data.get('media_id', '')
+            
+            if media_id:
+                logger.info(f"🎤 处理聊天记录中的语音: {media_id}")
+                
+                try:
+                    # 使用语音识别处理
+                    from ..services.media_processor import media_processor
+                    voice_text = media_processor.speech_to_text(media_id)
+                    
+                    if voice_text and not any(keyword in voice_text for keyword in ["[语音", "失败", "错误", "异常"]):
+                        return f"[发送了语音，识别内容：{voice_text}]"
+                    else:
+                        return "[发送了语音，识别失败]"
+                except Exception as voice_error:
+                    logger.warning(f"聊天记录语音处理失败: {voice_error}")
+                    return "[发送了语音，处理异常]"
+            else:
+                return "[发送了语音]"
+        except Exception as e:
+            logger.error(f"处理聊天记录语音失败: {e}")
+            return "[发送了语音]"
+    
+    def _process_chat_record_file(self, content_json: Dict[str, Any]) -> str:
+        """处理聊天记录中的文件消息"""
+        try:
+            file_data = content_json.get('file', {})
+            media_id = file_data.get('media_id', '')
+            filename = file_data.get('filename', '') or file_data.get('title', '') or '文件'
+            
+            if media_id:
+                logger.info(f"📁 处理聊天记录中的文件: {filename} ({media_id})")
+                
+                try:
+                    # 使用文件内容提取
+                    from ..services.media_processor import media_processor
+                    file_content = media_processor.extract_file_content(media_id, filename)
+                    
+                    if file_content and not any(placeholder in file_content for placeholder in ["功能待实现", "解析失败", "处理异常"]):
+                        return f"[发送了文件《{filename}》，内容：{file_content[:200]}{'...' if len(file_content) > 200 else ''}]"
+                    else:
+                        return f"[发送了文件《{filename}》，解析失败]"
+                except Exception as file_error:
+                    logger.warning(f"聊天记录文件处理失败: {file_error}")
+                    return f"[发送了文件《{filename}》，处理异常]"
+            else:
+                return f"[发送了文件《{filename}》]"
+        except Exception as e:
+            logger.error(f"处理聊天记录文件失败: {e}")
+            return "[发送了文件]"
+    
+    def _process_chat_record_location(self, content_json: Dict[str, Any]) -> str:
+        """处理聊天记录中的位置消息"""
+        try:
+            location_data = content_json.get('location', {})
+            name = location_data.get('name', '未知位置')
+            address = location_data.get('address', '')
+            lat = location_data.get('lat', '')
+            lng = location_data.get('lng', '')
+            
+            location_info = f"位置：{name}"
+            if address:
+                location_info += f"（{address}）"
+            if lat and lng:
+                location_info += f"，坐标：{lat},{lng}"
+                
+            return f"[分享了{location_info}]"
+        except Exception as e:
+            logger.error(f"处理聊天记录位置失败: {e}")
+            return "[分享了位置，解析失败]"
+    
+    def _process_chat_record_link(self, content_json: Dict[str, Any]) -> str:
+        """处理聊天记录中的链接消息"""
+        try:
+            link_data = content_json.get('link', {})
+            title = link_data.get('title', '无标题')
+            description = link_data.get('description', '')
+            url = link_data.get('url', '')
+            
+            link_info = f"链接：《{title}》"
+            if description:
+                link_info += f"，描述：{description}"
+            if url:
+                link_info += f"，地址：{url}"
+                
+            return f"[分享了{link_info}]"
+        except Exception as e:
+            logger.error(f"处理聊天记录链接失败: {e}")
+            return "[分享了链接，解析失败]"
     
     def _extract_event_content(self, message: Dict[str, Any]) -> str:
         """提取事件信息"""

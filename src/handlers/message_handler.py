@@ -2,11 +2,24 @@
 import logging
 import xml.etree.ElementTree as ET
 from typing import Dict, Any
-from message_classifier import classifier
-from message_formatter import text_extractor
-from ai_service import profile_extractor
+from .message_classifier import classifier
+from .message_formatter import text_extractor
+from ..services.ai_service import profile_extractor
+import time
 
 logger = logging.getLogger(__name__)
+
+# 智能选择数据库
+try:
+    from ..database.database_pg import pg_database
+    if pg_database.pool:
+        db = pg_database
+        logger.info("使用PostgreSQL数据库")
+    else:
+        raise ImportError("PostgreSQL不可用")
+except:
+    from ..database.database_sqlite_v2 import database_manager as db
+    logger.info("使用SQLite数据库（备用方案）- 多用户独立存储版本")
 
 def parse_message(xml_data: str) -> Dict[str, Any]:
     """解析XML消息数据"""
@@ -29,8 +42,10 @@ def process_message(message: Dict[str, Any]) -> None:
     
     流程: 消息 → 分类 → 转换为纯文本 → AI提取用户画像 → 存储/显示画像
     """
+    start_time = time.time()
     try:
         user_id = message.get('FromUserName')
+        message_id = message.get('MsgId', '')
         if not user_id:
             logger.warning("消息中缺少用户ID，跳过处理")
             return
@@ -48,7 +63,10 @@ def process_message(message: Dict[str, Any]) -> None:
         
         # 步骤3: AI提取用户画像
         print(f"🤖 正在分析用户画像...")
-        profile_result = profile_extractor.extract_user_profile(text_content)
+        is_chat_record = (message_type == 'chat_record')
+        if is_chat_record:
+            print(f"📋 检测到聊天记录，将分析聊天记录中主要对话者的用户画像（排除转发者，仅返回一人）")
+        profile_result = profile_extractor.extract_user_profile(text_content, is_chat_record)
         
         if profile_result.get('success', False):
             profile_data = profile_result.get('data', {})
@@ -78,6 +96,36 @@ def process_message(message: Dict[str, Any]) -> None:
                                 'personality': '性格'
                             }.get(key, key)
                             print(f"  {key_name}: {value}")
+                    
+                    # 保存到数据库
+                    try:
+                        profile_id = db.save_user_profile(
+                            wechat_user_id=user_id,
+                            profile_data=profile,
+                            raw_message=text_content,
+                            message_type=message_type,
+                            ai_response=profile_data
+                        )
+                        
+                        if profile_id:
+                            print(f"💾 用户画像已保存到数据库 (ID: {profile_id})")
+                            
+                            # 记录消息处理日志
+                            processing_time = int((time.time() - start_time) * 1000)
+                            db.log_message(
+                                wechat_user_id=user_id,
+                                message_id=message_id,
+                                message_type=message_type,
+                                success=True,
+                                processing_time_ms=processing_time,
+                                profile_id=profile_id
+                            )
+                        else:
+                            print("⚠️ 用户画像保存失败")
+                            
+                    except Exception as save_error:
+                        logger.error(f"保存用户画像到数据库失败: {save_error}")
+                        print(f"❌ 数据库保存失败: {save_error}")
             else:
                 print("📋 未能从消息中提取到明确的用户画像信息")
                 
@@ -100,6 +148,7 @@ def process_message_and_get_result(message: Dict[str, Any]) -> str:
     
     返回: 格式化的用户画像分析结果文本
     """
+    start_time = time.time()
     try:
         user_id = message.get('FromUserName')
         if not user_id:
@@ -119,7 +168,10 @@ def process_message_and_get_result(message: Dict[str, Any]) -> str:
         
         # 步骤3: AI提取用户画像
         print(f"🤖 正在分析用户画像...")
-        profile_result = profile_extractor.extract_user_profile(text_content)
+        is_chat_record = (message_type == 'chat_record')
+        if is_chat_record:
+            print(f"📋 检测到聊天记录，将分析聊天记录中主要对话者的用户画像（排除转发者，仅返回一人）")
+        profile_result = profile_extractor.extract_user_profile(text_content, is_chat_record)
         
         if profile_result.get('success', False):
             profile_data = profile_result.get('data', {})
@@ -168,6 +220,35 @@ def process_message_and_get_result(message: Dict[str, Any]) -> str:
                         result_text += "暂无明确信息"
                     
                     result_text += "\n\n"
+                    
+                    # 保存到数据库
+                    try:
+                        profile_id = db.save_user_profile(
+                            wechat_user_id=user_id,
+                            profile_data=profile,
+                            raw_message=text_content,
+                            message_type=message_type,
+                            ai_response=profile_data
+                        )
+                        
+                        if profile_id:
+                            logger.info(f"💾 用户画像已保存到数据库 (ID: {profile_id})")
+                            
+                            # 记录消息处理日志
+                            processing_time = int((time.time() - start_time) * 1000) if 'start_time' in locals() else None
+                            db.log_message(
+                                wechat_user_id=user_id,
+                                message_id=message.get('MsgId', ''),
+                                message_type=message_type,
+                                success=True,
+                                processing_time_ms=processing_time,
+                                profile_id=profile_id
+                            )
+                        else:
+                            logger.warning("用户画像保存失败")
+                            
+                    except Exception as save_error:
+                        logger.error(f"保存用户画像到数据库失败: {save_error}")
             else:
                 result_text += "📋 未能从消息中提取到明确的用户画像信息。\n\n"
             
@@ -221,7 +302,7 @@ def handle_wechat_kf_event(message: Dict[str, Any]) -> None:
         print(f"[微信客服事件] 企业ID: {corp_id}, 事件: kf_msg_or_event, 客服账号: {open_kfid}")
         print(f"Token: {token}, 时间: {create_time}")
         
-        from wework_client import wework_client
+        from ..services.wework_client import wework_client
         
         # 拉取所有消息，返回最新的1条
         print("🔄 拉取所有消息，获取最新的...")

@@ -1,287 +1,242 @@
-# 企业微信(WeWork)和微信客服回调服务
+# 微信客服用户画像系统
 
-这是一个基于FastAPI的Webhook服务，用于接收和处理来自企业微信(WeWork)和微信客服平台的消息回调。
+一个基于FastAPI的智能用户画像提取系统，支持企业微信和微信客服平台，通过AI分析用户消息自动生成详细的用户画像。
 
-## 项目概述
+## 🎯 核心功能
 
-该服务主要功能包括：
-- 接收企业微信和微信客服的消息回调
-- 验证消息签名确保安全性
-- 解密加密消息内容
-- 对消息进行分类处理
-- 根据消息类型执行相应的业务逻辑
-- 支持微信客服特有的事件回调和消息同步机制
+- **多平台支持**: 企业微信 + 微信客服双平台支持
+- **智能分析**: 基于通义千问API的用户画像提取
+- **多媒体处理**: 语音识别、图像OCR、文档解析
+- **数据隔离**: 每个微信用户拥有独立数据存储
+- **实时API**: 完整的RESTful API供前端调用
+- **可视化管理**: 内置数据库管理工具
 
-## 项目架构
+## 🚀 快速开始
 
-```
-├── main.py                 # FastAPI应用主文件，包含回调接口
-├── wework_client.py        # 企业微信客户端，处理签名验证、消息解密和API调用
-├── config/
-│   └── config.py           # 配置管理
-├── message_classifier.py   # 消息分类器
-├── message_handler.py      # 消息处理器
-├── run.py                  # 应用启动脚本
-├── requirements.txt        # 项目依赖
-├── weixin_doc/             # 微信客服官方文档
-└── tests/                  # 测试文件
-```
-
-## 核心组件
-
-### 1. FastAPI应用 (main.py)
-- 提供两个主要接口：
-  - `GET /wework/callback` - 用于企业微信/微信客服回调URL验证
-  - `POST /wework/callback` - 用于接收企业微信/微信客服消息回调
-- 兼容微信客服平台的路由：
-  - `GET /wechat/callback`
-  - `POST /wechat/callback`
-- 支持微信客服特有的事件回调处理机制
-
-### 2. 企业微信客户端 (wework_client.py)
-- `verify_signature()` - 验证消息签名，确保消息来源的合法性
-- `decrypt_message()` - 解密企业微信/微信客服发送的加密消息
-- `get_access_token()` - 获取企业微信/微信客服API访问令牌
-- `sync_kf_messages()` - 同步微信客服消息内容（微信客服特有）
-
-### 3. 消息分类器 (message_classifier.py)
-将接收到的消息按类型分类：
-- `chat_record` - 聊天记录
-- `contact_info` - 联系人信息
-- `command` - 命令消息
-- `image` - 图片消息
-- `file` - 文件消息
-- `voice` - 语音消息
-- `event` - 事件消息
-- `general_text` - 普通文本消息
-
-支持的微信客服消息类型：
-- 文本消息 (text)
-- 图片消息 (image)
-- 语音消息 (voice)
-- 视频消息 (video)
-- 文件消息 (file)
-- 位置消息 (location)
-- 链接消息 (link)
-- 小程序消息 (miniprogram)
-- 菜单消息 (msgmenu)
-- 事件消息 (event)
-  - 用户进入会话事件 (enter_session)
-  - 消息发送失败事件 (msg_send_fail)
-  - 用户撤回消息事件 (user_recall_msg)
-
-### 4. 消息处理器 (message_handler.py)
-根据消息分类执行相应的处理逻辑：
-- 处理聊天记录
-- 处理联系人信息
-- 处理命令消息
-- 处理图片/文件/语音消息
-- 处理事件消息
-- 处理微信客服特有消息类型（视频、位置、链接、小程序等）
-- 处理微信客服事件（用户进入会话、消息发送失败、用户撤回消息等）
-
-## 环境变量配置
-
-在运行服务之前，需要配置以下环境变量：
+### 1. 环境准备
 
 ```bash
-WEWORK_CORP_ID=your_corp_id          # 企业ID/微信客服企业ID
-WEWORK_AGENT_ID=your_agent_id        # 企业微信应用ID（微信客服可不填）
-WEWORK_SECRET=your_secret            # 企业微信应用密钥/微信客服Secret
-WEWORK_TOKEN=your_token              # 令牌
-WEWORK_AES_KEY=your_aes_key          # AES密钥
-LOCAL_SERVER_PORT=3001               # 服务端口（可选，默认3001）
-```
+# 克隆项目
+git clone <repository-url>
+cd qiwei
 
-注意：对于微信客服，WEWORK_CORP_ID应填写微信客服的企业ID，WEWORK_SECRET应填写微信客服的Secret。
-
-## 安装和运行
-
-### 1. 安装依赖
-```bash
+# 安装依赖
 pip install -r requirements.txt
+
+# 配置环境变量
+cp .env.example .env
+# 编辑 .env 文件，填入您的配置
 ```
 
-### 2. 配置环境变量
-创建 `.env` 文件并填入上述环境变量。
+### 2. 配置说明
 
-### 3. 运行服务
+在 `.env` 文件中配置以下参数：
+
 ```bash
-# 方法1：使用uvicorn直接运行
-uvicorn main:app --host 0.0.0.0 --port 3001 --reload
+# 微信配置
+WEWORK_CORP_ID=your_corp_id
+WEWORK_SECRET=your_secret
+WEWORK_TOKEN=your_token
+WEWORK_AES_KEY=your_aes_key
 
-# 方法2：使用run.py脚本
+# AI服务配置
+QWEN_API_KEY=your_qwen_api_key
+ASR_TOKEN=your_asr_token
+
+# 数据库配置
+DATABASE_PATH=user_profiles.db
+
+# 服务配置
+LOCAL_SERVER_PORT=3001
+```
+
+### 3. 启动应用
+
+```bash
+# 方式一：使用启动脚本（推荐）
+python run.py
+
+# 方式二：直接使用uvicorn
+uvicorn src.core.main:app --host 0.0.0.0 --port 3001 --reload
+```
+
+### 4. 访问服务
+
+- **API文档**: http://localhost:3001/docs
+- **前端测试**: 打开 `frontend-test/index.html`
+- **数据库管理**: `python scripts/db_viewer_sqlite.py`
+
+## 📋 项目结构
+
+```
+qiwei/
+├── src/                    # 源代码
+│   ├── core/              # 核心模块（FastAPI应用）
+│   ├── services/          # 服务层（AI、媒体处理、微信客户端）
+│   ├── handlers/          # 消息处理层
+│   ├── database/          # 数据库层
+│   └── config/            # 配置模块
+├── frontend-test/         # 前端测试页面
+├── scripts/              # 工具脚本
+├── docs/                 # 文档
+├── tests/               # 测试文件
+└── weixin_doc/          # 微信官方文档
+```
+
+详细结构说明请查看 [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)
+
+## 🎨 功能特性
+
+### 消息处理流程
+
+```
+用户消息 → 解密 → 分类 → 文本提取 → AI分析 → 用户画像 → 数据存储
+```
+
+### 支持的消息类型
+
+- **文本消息**: 直接分析文本内容
+- **语音消息**: 自动语音转文字后分析
+- **图片消息**: OCR识别文字内容
+- **文件消息**: 支持Word、PDF、Excel文档解析
+- **聊天记录**: 深度分析聊天内容，智能识别目标用户
+
+### 用户画像字段
+
+| 字段 | 说明 | 示例 |
+|------|------|------|
+| 姓名 | 用户姓名（主键） | 张三 |
+| 性别 | 性别信息 | 男/女 |
+| 年龄 | 年龄或年龄段 | 28岁 |
+| 电话 | 联系方式 | 138****1234 |
+| 所在地 | 居住地址 | 北京市朝阳区 |
+| 婚育 | 婚姻状况 | 已婚已育 |
+| 学历 | 教育背景 | 本科 |
+| 公司 | 工作单位 | 某科技公司 |
+| 职位 | 职务信息 | 软件工程师 |
+| 资产水平 | 经济状况 | 中等 |
+| 性格 | 性格特征 | 开朗活泼 |
+
+## 🔧 开发指南
+
+### API接口
+
+系统提供完整的RESTful API：
+
+- `POST /api/login` - 用户登录
+- `GET /api/profiles` - 获取画像列表
+- `GET /api/profiles/{id}` - 获取画像详情
+- `DELETE /api/profiles/{id}` - 删除画像
+- `GET /api/search` - 搜索画像
+- `GET /api/stats` - 获取统计信息
+
+详细API文档请查看：
+- [API基础文档](docs/api/API_DOCUMENTATION.md)
+- [前端开发指南](docs/api/FRONTEND_API_GUIDE.md)
+- [代码示例](docs/api/API_EXAMPLES.md)
+
+### 数据库管理
+
+```bash
+# SQLite数据库管理
+python scripts/db_viewer_sqlite.py
+
+# PostgreSQL数据库管理（可选）
+python scripts/db_viewer_pg.py
+```
+
+### 测试工具
+
+```bash
+# 后端API测试
+python tests/test_api.py
+
+# 前端界面测试
+# 打开 frontend-test/index.html
+```
+
+## 🛠️ 技术栈
+
+### 后端技术
+- **FastAPI**: 高性能Web框架
+- **SQLite/PostgreSQL**: 数据库存储
+- **通义千问API**: AI用户画像分析
+- **阿里云ASR**: 语音识别服务
+- **ETL4LM**: 文档和图像处理
+
+### 前端技术
+- **HTML5 + JavaScript**: 测试界面
+- **Bootstrap 5**: UI框架
+- **原生API调用**: 无框架依赖
+
+## 📊 数据安全
+
+- **用户隔离**: 每个微信用户拥有独立数据表
+- **Token认证**: API访问需要有效Token
+- **数据加密**: 微信消息加密传输
+- **隐私保护**: 敏感信息自动脱敏
+
+## 🚧 部署说明
+
+### 开发环境
+```bash
 python run.py
 ```
 
-## 测试
-
-项目包含多个测试脚本用于验证功能：
-
+### 生产环境
 ```bash
-# 测试回调验证
-python tests/test_callback_verification.py
-
-# 测试签名验证
-python tests/test_wework_signature.py
-
-# 测试消息回调
-python tests/test_message_callback.py
+# 使用Gunicorn部署
+pip install gunicorn
+gunicorn src.core.main:app -w 4 -k uvicorn.workers.UvicornWorker
 ```
 
-### 微信客服测试说明
-
-要测试微信客服功能，需要：
-
-1. 确保已正确配置微信客服的环境变量
-2. 启动服务后，在微信客服管理后台配置回调URL
-3. 通过微信客服客户端发送测试消息
-4. 查看控制台输出确认消息处理是否正常
-
-测试时可以在控制台看到类似以下的输出：
-```
-[微信客服事件] 企业ID: ww12345678910, 事件: kf_msg_or_event, 客服账号: wkxxxxxxx
-Token: ENCApHxnGDNAVNY4AaSJKj4Tb5mwsEMzxhFmHVGcra996NR, 时间: 1348831860
-通过sync_msg接口获取消息成功，共收到1条消息
-[文本消息] 用户: wmAJ2GCAAAme1XQRC-NI-q0_ZM9ukoAw
-内容: 你好，我想咨询一下产品信息
+### Docker部署
+```dockerfile
+FROM python:3.9
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY . .
+CMD ["python", "run.py"]
 ```
 
-## 调试工具
+## 📝 更新日志
 
-项目提供了一些实用的调试工具：
+### v1.0.0 (2025-08-04)
+- ✅ 项目结构重构，模块化设计
+- ✅ 完整的用户画像CRUD功能
+- ✅ 多用户数据隔离
+- ✅ 前端API接口完整实现
+- ✅ 语音识别和文档处理集成
+- ✅ 数据库管理工具
 
-```bash
-# 调试企业微信回调验证
-python utils/debug_wework_callback.py
+### 主要改进
+- 🔧 重新组织了项目文件结构
+- 📚 完善了API文档和使用指南
+- 🎨 优化了前端测试界面
+- 🔒 增强了数据安全性
+- 📊 完善了统计功能
 
-# 检查端口占用
-python utils/check_port.py
-```
+## 🤝 贡献指南
 
-## 微信客服与企业微信的区别
+1. Fork 项目
+2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 打开 Pull Request
 
-微信客服和企业微信在消息处理机制上有显著差异：
+## 📄 许可证
 
-1. **企业微信**：直接在回调中发送完整的消息内容
-2. **微信客服**：采用事件通知机制，回调只通知有新消息，需要主动调用接口获取具体消息内容
+本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
 
-## 消息处理流程
+## 🆘 支持
 
-### 企业微信消息处理流程
-1. 企业微信向配置的回调URL发送GET请求进行URL验证
-2. 服务验证签名并解密echostr参数，返回解密结果完成验证
-3. 企业微信向回调URL发送POST请求传递消息
-4. 服务验证消息签名并解密消息内容
-5. 解析XML格式的消息内容
-6. 根据消息类型进行分类
-7. 执行相应的消息处理逻辑
+- 📖 查看 [文档目录](docs/) 获取详细信息
+- 🐛 [提交问题](../../issues) 报告bug
+- 💡 [功能建议](../../issues) 提出新功能需求
 
-### 微信客服消息处理流程
-1. 微信客服向配置的回调URL发送GET请求进行URL验证
-2. 服务验证签名并解密echostr参数，返回解密结果完成验证
-3. 当有客户消息时，微信客服向回调URL发送POST请求传递事件通知
-4. 服务验证消息签名并解密事件内容
-5. 解析XML格式的事件通知
-6. 识别为微信客服事件（MsgType=event, Event=kf_msg_or_event）
-7. 调用sync_msg接口获取具体消息内容
-8. 根据消息类型进行分类和处理
+## 📞 联系方式
 
-## 具体示例
-
-### 示例1：用户发送文本消息
-```
-用户发送："你好，我想咨询一下产品信息"
-
-微信客服回调事件：
-<xml>
-   <ToUserName><![CDATA[ww12345678910]]></ToUserName>
-   <CreateTime>1348831860</CreateTime>
-   <MsgType><![CDATA[event]]></MsgType>
-   <Event><![CDATA[kf_msg_or_event]]></Event>
-   <Token><![CDATA[ENCApHxnGDNAVNY4AaSJKj4Tb5mwsEMzxhFmHVGcra996NR]]></Token>
-   <OpenKfId><![CDATA[wkxxxxxxx]]></OpenKfId>
-</xml>
-
-通过sync_msg接口获取的具体消息：
-{
-   "msgtype" : "text",
-   "text" : {
-        "content" : "你好，我想咨询一下产品信息"
-   }
-}
-
-处理结果：
-[文本消息] 用户: wmAJ2GCAAAme1XQRC-NI-q0_ZM9ukoAw
-内容: 你好，我想咨询一下产品信息
-```
-
-### 示例2：用户发送图片消息
-```
-用户发送一张产品图片
-
-微信客服回调事件：
-<xml>
-   <ToUserName><![CDATA[ww12345678910]]></ToUserName>
-   <CreateTime>1348831860</CreateTime>
-   <MsgType><![CDATA[event]]></MsgType>
-   <Event><![CDATA[kf_msg_or_event]]></Event>
-   <Token><![CDATA[ENCApHxnGDNAVNY4AaSJKj4Tb5mwsEMzxhFmHVGcra996NR]]></Token>
-   <OpenKfId><![CDATA[wkxxxxxxx]]></OpenKfId>
-</xml>
-
-通过sync_msg接口获取的具体消息：
-{
-   "msgtype" : "image",
-   "image" : {
-        "media_id" : "2iSLeVyqzk4eX0IB5kTi9Ljfa2rt9dwfq5WKRQ4Nvvgw"
-   }
-}
-
-处理结果：
-[图片] 用户: wmAJ2GCAAAme1XQRC-NI-q0_ZM9ukoAw, MediaId: 2iSLeVyqzk4eX0IB5kTi9Ljfa2rt9dwfq5WKRQ4Nvvgw
-✅ 图片消息已接收，可以下载并OCR识别
-```
-
-### 示例3：用户进入会话事件
-```
-用户点击链接进入客服会话
-
-微信客服回调事件：
-<xml>
-   <ToUserName><![CDATA[ww12345678910]]></ToUserName>
-   <CreateTime>1348831860</CreateTime>
-   <MsgType><![CDATA[event]]></MsgType>
-   <Event><![CDATA[kf_msg_or_event]]></Event>
-   <Token><![CDATA[ENCApHxnGDNAVNY4AaSJKj4Tb5mwsEMzxhFmHVGcra996NR]]></Token>
-   <OpenKfId><![CDATA[wkxxxxxxx]]></OpenKfId>
-</xml>
-
-通过sync_msg接口获取的具体消息：
-{
-   "msgtype" : "event",
-   "event" : {
-        "event_type": "enter_session",
-        "open_kfid": "wkAJ2GCAAASSm4_FhToWMFea0xAFfd3Q",
-        "external_userid": "wmAJ2GCAAAme1XQRC-NI-q0_ZM9ukoAw",
-        "scene": "123",
-        "scene_param": "abc",
-        "welcome_code": "aaaaaa"
-   }
-}
-
-处理结果：
-[微信客服事件] 企业ID: ww12345678910, 事件: kf_msg_or_event, 客服账号: wkxxxxxxx
-Token: ENCApHxnGDNAVNY4AaSJKj4Tb5mwsEMzxhFmHVGcra996NR, 时间: 1348831860
-[事件消息] 用户: wmAJ2GCAAAme1XQRC-NI-q0_ZM9ukoAw, 事件: enter_session, 事件Key: None
-完整事件消息内容:
-  msgtype: event
-  event: {'event_type': 'enter_session', 'open_kfid': 'wkAJ2GCAAASSm4_FhToWMFea0xAFfd3Q', 'external_userid': 'wmAJ2GCAAAme1XQRC-NI-q0_ZM9ukoAw', 'scene': '123', 'scene_param': 'abc', 'welcome_code': 'aaaaaa'}
-```
-
-## 扩展开发
-
-要添加新的消息处理逻辑：
-1. 在 `message_classifier.py` 中添加新的分类规则
-2. 在 `message_handler.py` 中实现新的处理函数
-3. 在 `classify_and_handle_message()` 函数中添加新的处理分支
+- 开发团队: [开发者邮箱]
+- 项目地址: [GitHub仓库地址]
+- 技术支持: [支持邮箱]

@@ -20,7 +20,7 @@ class WeWorkConfig:
     qwen_api_endpoint: str = os.getenv('QWEN_API_ENDPOINT', 'https://dashscope.aliyuncs.com/compatible-mode/v1')
     # 阿里云ASR配置
     asr_appkey: str = os.getenv('ASR_APPKEY', 'NM5zdrGkIl8xqSzO')  # 默认值来自文档
-    asr_token: str = os.getenv('ASR_TOKEN', '9dadd6de5f8b458a852f45a2538bd602')  # 默认值来自文档
+    asr_token: str = os.getenv('ASR_TOKEN', 'be3d7dfd4e51401db4c122e2d74b06ba')  # 默认值来自文档
     asr_url: str = os.getenv('ASR_URL', 'wss://nls-gateway-cn-shanghai.aliyuncs.com/ws/v1')
     # ffmpeg路径配置
     ffmpeg_path: str = os.getenv('FFMPEG_PATH', r'D:\software\ffmpeg-7.1.1-essentials_build\bin\ffmpeg.exe')  # 使用用户指定的路径
