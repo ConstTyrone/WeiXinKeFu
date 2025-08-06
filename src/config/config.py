@@ -24,5 +24,9 @@ class WeWorkConfig:
     asr_url: str = os.getenv('ASR_URL', 'wss://nls-gateway-cn-shanghai.aliyuncs.com/ws/v1')
     # ffmpeg路径配置
     ffmpeg_path: str = os.getenv('FFMPEG_PATH', r'D:\software\ffmpeg-7.1.1-essentials_build\bin\ffmpeg.exe')  # 使用用户指定的路径
+    
+    # 微信小程序配置
+    wechat_mini_appid: str = os.getenv('WECHAT_MINI_APPID', 'wx50fc05960f4152a6')  # 你提供的AppID
+    wechat_mini_secret: str = os.getenv('WECHAT_MINI_SECRET', '')  # 需要在环境变量中设置
 
 config = WeWorkConfig()

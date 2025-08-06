@@ -6,99 +6,130 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a FastAPI-based webhook service for integrating with WeWork (企业微信) and WeChat Customer Service (微信客服) platforms. The service handles message callbacks from both platforms, classifies different types of messages, and processes them accordingly with AI-powered user profile extraction and multimedia content processing. The application supports both Enterprise WeChat's direct message delivery and WeChat Customer Service's event-driven message synchronization mechanism.
+This is a FastAPI-based intelligent user profile extraction system that integrates with WeWork (企业微信) and WeChat Customer Service (微信客服) platforms. The system handles message callbacks from both platforms, processes various message types through AI analysis, and extracts detailed user profiles with multi-user data isolation. The application features a complete REST API for frontend integration and advanced multimedia processing capabilities.
 
 ## Architecture
 
-The application follows a clean, unified message processing architecture:
+The application follows a modern, layered architecture with clear separation of concerns:
 
-**Core Processing Flow**: 用户消息 → 解密 → 分类 → 转换为纯文本 → AI提取用户画像 → 存储画像数据
+**Core Processing Flow**: 用户消息 → 解密 → 分类 → 转换为纯文本 → AI提取用户画像 → 存储画像数据 → API展示
 
-### Core Modules:
-- `main.py`: FastAPI application with endpoints for WeWork/WeChat callback verification and message handling
-- `wework_client.py`: WeWork/WeChat API client for token management, signature verification, message decryption, and message synchronization
-- `message_handler.py`: **Unified message processing pipeline** - orchestrates the entire user profile extraction flow
-- `message_classifier.py`: Message classification logic that categorizes incoming messages into types
-- `message_formatter.py`: **Text Extractor** - Converts all message types (text, voice, files, chat records) to pure text for AI analysis
-- `media_processor.py`: **Multimedia Processor** - Handles media download, ETL4LM integration for OCR and PDF processing, voice recognition using Alibaba Cloud ASR
-- `ai_service.py`: **User Profile Extractor** - Analyzes text content and extracts detailed user profiles using Qwen API
-- `database.py`: **User Profile Database** - SQLite database for storing and managing user profile data (deprecated)
-- `database_pg.py`: **PostgreSQL User Profile Database** - Multi-user PostgreSQL database system with quota management
-- `db_viewer.py`: **Database Management Tool** - Interactive CLI tool for SQLite database (deprecated)
-- `db_viewer_pg.py`: **PostgreSQL Database Management Tool** - Advanced CLI tool for PostgreSQL database management
-- `message_sync_optimizer.py`: **Message Sync Optimizer** - Handles pagination and deduplication for WeChat Customer Service message sync
-- `config/config.py`: Configuration management using environment variables
-- `run.py`: Application startup script
+### Project Structure (Updated 2025-08-04)
 
-### Key Components
+```
+qiwei/
+├── src/                              # 源代码目录
+│   ├── core/                         # 核心层
+│   │   └── main.py                   # FastAPI应用主文件，包含所有API端点
+│   ├── services/                     # 服务层
+│   │   ├── ai_service.py             # AI分析服务（通义千问API）
+│   │   ├── media_processor.py        # 多媒体处理服务（ETL4LM、ASR）
+│   │   └── wework_client.py          # 微信API客户端
+│   ├── handlers/                     # 消息处理层
+│   │   ├── message_handler.py        # 统一消息处理器
+│   │   ├── message_classifier.py     # 消息分类器
+│   │   ├── message_formatter.py      # 文本提取器
+│   │   └── message_sync_optimizer.py # 消息同步优化器
+│   ├── database/                     # 数据库层
+│   │   ├── database_pg.py            # PostgreSQL数据库管理
+│   │   ├── database_sqlite_v2.py     # SQLite多用户独立存储（推荐）
+│   │   └── database_sqlite.py        # SQLite简化版本（兼容）
+│   └── config/                       # 配置层
+│       └── config.py                 # 环境变量配置管理
+├── scripts/                          # 工具脚本
+│   ├── db_viewer_pg.py              # PostgreSQL数据库管理工具
+│   └── db_viewer_sqlite.py          # SQLite数据库管理工具
+├── docs/                            # 文档系统
+│   ├── api/                         # API文档
+│   │   ├── API_DOCUMENTATION.md     # API基础文档
+│   │   ├── FRONTEND_API_GUIDE.md    # 前端开发者指南
+│   │   └── API_EXAMPLES.md          # 完整代码示例集合
+│   └── setup/                       # 安装配置文档
+│       └── DATABASE_SETUP.md        # 数据库配置说明
+├── frontend-test/                   # 前端测试页面
+│   ├── index.html                   # 主测试页面
+│   ├── api-client.js                # API客户端封装
+│   ├── app.js                       # 主应用逻辑
+│   └── README.md                    # 前端使用说明
+├── tests/                           # 测试文件
+│   └── test_api.py                  # API自动化测试脚本
+├── weixin_doc/                      # 微信官方文档
+├── reference/                       # 技术参考文档
+├── run.py                           # 应用启动脚本（模块化）
+├── requirements.txt                 # Python依赖
+├── README.md                        # 项目说明文档
+├── PROJECT_STRUCTURE.md             # 详细结构说明
+└── user_profiles.db                 # SQLite数据库文件（自动生成）
+```
 
-1. **WeWork/WeChat Integration**:
-   - Handles signature verification and message decryption for secure communication
-   - Supports both Enterprise WeChat (direct message delivery) and WeChat Customer Service (event-driven message sync)
-   - Manages access tokens for API calls
+### Core Components
 
-2. **User Profile Extraction Pipeline**:
-   - **Classification**: Automatically categorizes messages into standardized types (text, image, file, voice, video, location, link, miniprogram, chat_record, event, command)
-   - **Text Extraction**: Converts all message types to pure text format for AI analysis
-     - Text messages: Direct content extraction
-     - Voice messages: Speech-to-text conversion
-     - Files: Content extraction from Word/PDF/Excel/TXT documents
-     - Chat records: Structured conversation parsing with participant analysis
-     - Images: OCR text recognition (framework ready)
-   - **AI Analysis**: Feeds extracted text to Qwen (通义千问) API for user profile extraction
-   - **Profile Generation**: Extracts detailed user information including name, age, location, occupation, personality, etc.
-   - Special handling for WeChat Customer Service events that require calling sync_msg API to retrieve actual message content
+1. **FastAPI Application (src/core/main.py)**:
+   - **WeChat Integration Endpoints**: `/wework/callback`, `/wechat/callback` for message handling
+   - **Frontend API Endpoints**: Complete REST API with authentication
+     - `POST /api/login` - User authentication with WeChat user ID
+     - `GET /api/profiles` - Paginated user profiles with search
+     - `GET /api/profiles/{id}` - Detailed profile view
+     - `DELETE /api/profiles/{id}` - Profile deletion
+     - `GET /api/search` - Full-text profile search
+     - `GET /api/stats` - User statistics dashboard
+     - `GET /api/recent` - Recent profiles
+     - `GET /api/user/info` - Current user information
+     - `GET /api/updates/check` - Real-time update checking
+   - **CORS Support**: Configured for frontend integration
+   - **Authentication**: Bearer token authentication system
+   - **Database Integration**: Intelligent PostgreSQL/SQLite selection
 
-3. **Multi-Media Content Processing with ETL4LM and ASR Integration**:
-   - **ETL4LM API Integration**: Full integration with ETL4LM service for advanced document processing
-     - Image OCR: Automatic text extraction from images with timeout handling (3 minutes)
-     - PDF Processing: Advanced PDF parsing with formula recognition and timeout handling (5 minutes)
-     - Progress tracking and file size estimation for better user experience
-   - **Speech Recognition**: Alibaba Cloud ASR integration for voice messages
-     - AMR format support with automatic conversion to PCM using ffmpeg
-     - Real-time streaming recognition with WebSocket connection
-     - Asynchronous processing with callback handling
-   - **Document Processing**: Support for extracting text from common file formats
-     - TXT files: Multi-encoding support (UTF-8, GBK, GB2312)
-     - Word documents: Ready for python-docx integration
-     - PDF files: ETL4LM integration for advanced parsing with OCR and formula support
-     - Excel files: Ready for openpyxl integration
-   - **Media Download**: Automatic downloading of media files via MediaID for processing
-   - **File Type Detection**: Magic number detection for files without metadata
+2. **Service Layer Architecture**:
+   - **AI Service (src/services/ai_service.py)**: 
+     - Qwen API integration with specialized prompts
+     - Chat record analysis with target user detection
+     - JSON response parsing with auto-repair
+     - Confidence score calculation
+   - **Media Processor (src/services/media_processor.py)**:
+     - ETL4LM integration for OCR and PDF processing
+     - Alibaba Cloud ASR for voice recognition
+     - Multi-format document processing
+     - Timeout handling and progress tracking
+   - **WeWork Client (src/services/wework_client.py)**:
+     - Dual-platform support (Enterprise WeChat + WeChat Customer Service)
+     - Message encryption/decryption
+     - Token management and API calls
+     - Message synchronization for WeChat Customer Service
 
-4. **User Profile Database System**:
-   - **PostgreSQL Database**: Advanced multi-user storage system for user profiles
-     - Separate user profile collections for each WeChat user
-     - User quota management (profile limits, daily message limits)
-     - Full-text search with Chinese language support
-     - Confidence score calculation for profile completeness
-     - Message processing logs with performance metrics
-     - Tag system for profile categorization
+3. **Message Processing Pipeline**:
+   - **Classification (src/handlers/message_classifier.py)**: Intelligent message type detection
+   - **Text Extraction (src/handlers/message_formatter.py)**: Universal text extraction from all message types
+   - **Processing Orchestration (src/handlers/message_handler.py)**: Unified workflow management
+   - **Real-time Media Processing**: Chat record media files processed during analysis
+
+4. **Multi-User Database System**:
+   - **PostgreSQL Support**: Advanced multi-tenant architecture with user quotas
+   - **SQLite v2 (Recommended)**: Each WeChat user gets dedicated table (`profiles_user123`)
+   - **Data Isolation**: Complete separation between users
    - **Database Features**:
-     - Connection pooling for high concurrency
-     - JSONB storage for flexible metadata
-     - Automatic timestamp management with triggers
-     - Views for statistics and usage analytics
-     - Indexed fields for fast querying
-   - **Automatic Storage**: Every successful AI analysis is automatically saved
-     - User isolation: each user's profiles stored separately
-     - Duplicate detection: updates existing profiles by name
-     - Full audit trail with raw message and AI response storage
-   - **Management Tools**: Advanced CLI tool for database operations
-     - Multi-user support with user switching
-     - Full-text search across profiles
-     - Detailed profile viewing with all metadata
-     - User statistics and quota monitoring
-     - Batch operations support
+     - Automatic table creation and indexing
+     - Full-text search capabilities
+     - Confidence scoring and metadata storage
+     - Message processing logs and statistics
+     - Interactive management tools
+
+5. **Frontend Integration**:
+   - **Complete API Documentation**: Three levels of documentation for different use cases
+   - **Test Interface**: Ready-to-use HTML/JavaScript testing interface
+   - **Multi-Framework Examples**: React, Vue.js, and vanilla JavaScript examples
+   - **Real-time Updates**: Polling and WebSocket support patterns
+   - **Mobile Responsive**: Optimized for mobile devices
 
 ## User Profile Extraction
 
-The system extracts the following user profile information:
+The system extracts comprehensive user profiles with the following standardized fields:
 
+### Core Profile Fields
 1. **姓名（主键）** - Primary identifier, required field
-2. **性别** - Male/Female/Unknown
+2. **性别** - Male/Female/Unknown  
 3. **年龄** - Specific age or age range
-4. **电话** - Phone number or other contact information
+4. **电话** - Phone number or contact information
 5. **所在地（常驻地）** - City or region of residence
 6. **婚育** - Marital and parental status (已婚已育/已婚未育/未婚/离异/未知)
 7. **学历（学校）** - Education level and institutions
@@ -107,113 +138,115 @@ The system extracts the following user profile information:
 10. **资产水平** - Asset level (High/Medium/Low/Unknown)
 11. **性格** - Personality traits and characteristics
 
-### Supported Input Types for Profile Extraction:
-- **Text Messages**: Direct analysis of user conversations
-- **Voice Messages**: Speech-to-text → profile extraction  
-- **Chat Records**: Deep recursive analysis with multimedia content extraction
-  - **Smart Target Detection**: Automatically identifies and analyzes only the target person (not the forwarder)
-  - **Multimedia Support**: Full processing of images (OCR), voice (speech-to-text), files (content extraction), locations, and links within chat records
-  - **Advanced AI Prompting**: Specialized prompts for chat record analysis focusing on the other party
-  - **Real-time Media Processing**: Chat record media files are processed in real-time during analysis
-- **Files**: Content extraction from documents for profile information
-- **Combined Analysis**: Intelligent analysis across multiple message types
+### Advanced Processing Capabilities
+- **Text Messages**: Direct content analysis with context understanding
+- **Voice Messages**: Automatic speech-to-text → profile extraction
+- **Chat Records**: 
+  - **Smart Target Detection**: Focuses only on target person (excludes forwarder)
+  - **Multimedia Integration**: Processes embedded images, voice, files
+  - **Advanced AI Prompting**: Specialized analysis for chat conversations
+  - **Single Profile Output**: Ensures only one profile per analysis
+- **Documents**: Full content extraction from Word, PDF, Excel, TXT files
+- **Images**: OCR text recognition for profile information
+- **Combined Analysis**: Multi-message type intelligent correlation
 
 ## Commands for Development
 
-### Installing Dependencies
+### Environment Setup
 ```bash
-# Install core dependencies
-pip install -r requirements.txt
-
-# For voice recognition support (optional)
-pip install alibabacloud-nls-python-sdk
-
-# Create virtual environment (recommended)
+# Create and activate virtual environment
 python -m venv venv
 # Windows: venv\Scripts\activate
 # Linux/macOS: source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Optional: Voice recognition support
+pip install alibabacloud-nls-python-sdk
 ```
 
 ### Running the Application
 ```bash
-# Method 1: Using uvicorn directly (recommended for development)
-uvicorn main:app --host 0.0.0.0 --port 3001 --reload
-
-# Method 2: Using run script
+# Method 1: Using modular startup script (recommended)
 python run.py
+
+# Method 2: Using uvicorn directly
+uvicorn src.core.main:app --host 0.0.0.0 --port 3001 --reload
+```
+
+### Database Management Tools
+```bash
+# SQLite database management (multi-user version)
+python scripts/db_viewer_sqlite.py
+
+# PostgreSQL database management (advanced features)
+python scripts/db_viewer_pg.py
 ```
 
 ### Testing and Validation
 ```bash
-# Check Python syntax for all files
-python -m py_compile *.py
-python -m py_compile config/*.py
+# Automated API testing
+python tests/test_api.py
 
-# Validate configuration
-python -c "from config.config import config; print('配置验证成功')"
+# Syntax validation
+python -m py_compile src/core/main.py
+python -m py_compile src/services/*.py
+python -m py_compile src/handlers/*.py
 
-# Test webhook endpoints locally
-curl -X GET "http://localhost:3001/"
-curl -X POST "http://localhost:3001/test"
+# Configuration validation
+python -c "from src.config.config import config; print('配置验证成功')"
 ```
 
-### Database Management
+### Frontend Testing
 ```bash
-# PostgreSQL database management (recommended)
-python db_viewer_pg.py
+# Open frontend test interface
+# Navigate to frontend-test/index.html in browser
 
-# PostgreSQL operations available:
-# - Multi-user profile management
-# - Full-text search with Chinese support
-# - User statistics and quota monitoring
-# - Profile detail viewing with metadata
-# - Batch operations
-
-# Legacy SQLite database viewer (deprecated)
-python db_viewer.py
+# Or serve with Python
+python -m http.server 8080
+# Then visit http://localhost:8080/frontend-test/
 ```
 
 ### Common Development Workflows
 
 1. **Adding New Message Types**:
-   - Update `message_classifier.py` to add classification logic
-   - Add handler function in `message_handler.py`
-   - Add text extraction logic in `message_formatter.py` if needed
-   - Update AI prompts in `ai_service.py` if specific handling is required
+   - Update `src/handlers/message_classifier.py` classification logic
+   - Add handler in `src/handlers/message_handler.py`
+   - Implement text extraction in `src/handlers/message_formatter.py`
+   - Update AI prompts in `src/services/ai_service.py` if needed
 
-2. **Testing WeChat Customer Service Integration**:
-   - Ensure environment variables are set correctly
-   - Run the service: `python run.py`
-   - Configure callback URL in WeChat Customer Service admin panel
-   - Send test messages through WeChat Customer Service
-   - Check console logs for processing status
+2. **Frontend API Integration**:
+   - Check `docs/api/FRONTEND_API_GUIDE.md` for detailed API documentation
+   - Use `docs/api/API_EXAMPLES.md` for React/Vue/JavaScript examples
+   - Test with `frontend-test/index.html` interface
+   - Implement real-time updates using provided patterns
 
-3. **Debugging Message Processing**:
-   - Enable detailed logging in console output
-   - Check decryption logs for signature/encryption issues
-   - Verify token management for API access
-   - Monitor AI response parsing for profile extraction
+3. **Database Schema Changes**:
+   - Modify `src/database/database_sqlite_v2.py` for SQLite
+   - Update `src/database/database_pg.py` for PostgreSQL
+   - Run database management tools to verify changes
+   - Update API models in `src/core/main.py` if needed
 
-4. **ETL4LM Integration Testing**:
-   - Send images/PDFs through WeChat Customer Service
-   - Monitor console for ETL processing status (3min timeout for images, 5min for PDFs)
-   - Check timeout handling for large files
-   - Verify OCR/text extraction results in AI analysis output
+4. **ETL4LM and Media Processing**:
+   - Monitor console for processing status and timeouts
+   - Check ETL integration in `src/services/media_processor.py`
+   - Test with various file formats (images, PDFs, documents)
+   - Verify OCR results in AI analysis output
 
 ## Environment Configuration
 
-Create a `.env` file with the following variables:
-
-### Required Variables
+### Required Variables (.env file)
 ```bash
-# WeWork/WeChat Customer Service Credentials
+# WeChat Platform Credentials
 WEWORK_CORP_ID=your_corp_id              # 企业ID/微信客服企业ID
-WEWORK_SECRET=your_secret                # 企业微信应用密钥/微信客服Secret
+WEWORK_SECRET=your_secret                # 企业微信应用密钥/微信客服Secret  
 WEWORK_TOKEN=your_token                  # 回调Token
 WEWORK_AES_KEY=your_aes_key             # 加密AES Key
 
-# AI Service
-QWEN_API_KEY=your_qwen_api_key          # 通义千问API密钥
+# AI Analysis Service
+QWEN_API_KEY=your_qwen_api_key          # 通义千问API密钥（必需）
+QWEN_API_ENDPOINT=https://dashscope.aliyuncs.com/compatible-mode/v1
 ```
 
 ### Optional Variables
@@ -222,119 +255,94 @@ QWEN_API_KEY=your_qwen_api_key          # 通义千问API密钥
 WEWORK_AGENT_ID=your_agent_id           # 企业微信应用ID（微信客服不需要）
 
 # Server Configuration
-LOCAL_SERVER_PORT=3001                  # 默认: 3001
-
-# AI Service Endpoint
-QWEN_API_ENDPOINT=https://dashscope.aliyuncs.com/compatible-mode/v1
+LOCAL_SERVER_PORT=3001                  # API服务端口
+ENVIRONMENT=development                 # development/production
 
 # Voice Recognition (Alibaba Cloud ASR)
-ASR_APPKEY=NM5zdrGkIl8xqSzO           # 默认已配置
-ASR_TOKEN=your_asr_token               # 需要提供有效Token
+ASR_APPKEY=NM5zdrGkIl8xqSzO           # 预配置AppKey
+ASR_TOKEN=your_asr_token               # 需要有效Token
 ASR_URL=wss://nls-gateway-cn-shanghai.aliyuncs.com/ws/v1
 
+# Database Configuration
+DATABASE_PATH=user_profiles.db          # SQLite数据库路径
+DATABASE_URL=postgresql://user:pass@localhost:5432/profiles_db  # PostgreSQL连接
+
 # Media Processing
-FFMPEG_PATH=your_ffmpeg_path           # 可选，默认使用系统PATH
-DATABASE_PATH=user_profiles.db         # SQLite数据库文件路径（已弃用）
-
-# PostgreSQL Database (新增)
-DATABASE_URL=postgresql://user:password@localhost:5432/user_profiles_db
+FFMPEG_PATH=your_ffmpeg_path           # ffmpeg路径（可选）
 ```
 
-### ETL4LM Configuration (Pre-configured)
-```
-ETL Base URL: http://110.16.193.170:50103
-Predict Endpoint: /v1/etl4llm/predict
-```
-
-## Project Structure
-
-```
-├── main.py                 # FastAPI应用主文件，包含回调接口
-├── wework_client.py        # 企业微信客户端，处理签名验证、消息解密和API调用
-├── config/
-│   └── config.py           # 配置管理
-├── message_classifier.py   # 消息分类器
-├── message_handler.py      # 消息处理器
-├── message_formatter.py    # 消息文本提取器
-├── media_processor.py      # 多媒体处理器（包含ETL集成）
-├── ai_service.py           # AI服务，处理通义千问API调用
-├── database.py             # 用户画像数据库管理器
-├── db_viewer.py            # 数据库查看和管理工具
-├── message_sync_optimizer.py # 消息同步优化器
-├── run.py                  # 应用启动脚本
-├── requirements.txt        # 项目依赖
-├── .env.example            # 环境变量示例
-├── .env.test               # 测试环境配置
-├── weixin_doc/             # 微信客服官方文档
-├── reference/              # 技术文档参考
-│   ├── ETL接口文档.md      # ETL4LM API文档
-│   └── 阿里asr文档.md      # 阿里云ASR文档
-├── user_profiles.db        # SQLite数据库文件（自动创建）
-└── CLAUDE.md               # 本文件
+### Pre-configured Services
+```bash
+# ETL4LM Service (No API key required)
+ETL_BASE_URL=http://110.16.193.170:50103
+ETL_PREDICT_ENDPOINT=/v1/etl4llm/predict
 ```
 
 ## Message Processing Flow
 
-### Enterprise WeChat Message Flow
-1. WeWork sends GET request for URL verification
-2. Service verifies signature and decrypts echostr, returns decrypted result
-3. WeWork sends POST requests with messages
-4. Service verifies message signature and decrypts content
-5. Parses XML message content
-6. Classifies message by type
-7. Executes appropriate message handling logic
-
-### WeChat Customer Service Message Flow
+### WeChat Customer Service Flow (Primary)
 1. WeChat Customer Service sends GET request for URL verification
-2. Service verifies signature and decrypts echostr, returns decrypted result
-3. When customer sends message, WeChat Customer Service sends POST event notification
-4. Service verifies signature and decrypts event content
-5. Parses XML event notification
-6. Identifies as WeChat Customer Service event (MsgType=event, Event=kf_msg_or_event)
-7. Calls sync_msg API with limit=1 to retrieve the latest message only
-8. Converts message format and classifies message by type
-9. Extracts text content and sends to AI for user profile analysis
-10. Formats AI analysis results and sends back to user via WeChat API
+2. Service verifies signature and decrypts echostr, returns decrypted result  
+3. Customer sends message → WeChat Customer Service sends POST event notification
+4. Service identifies kf_msg_or_event and calls sync_msg API to retrieve actual content
+5. Message is classified, processed, and analyzed by AI
+6. User profile is extracted and stored in user-specific database table
+7. Analysis results are formatted and sent back to customer via WeChat API
 
-## Platform Differences
+### Enterprise WeChat Flow (Secondary)
+1. Enterprise WeChat sends GET request for URL verification
+2. Service handles verification and message processing directly
+3. Messages contain full content in callback (no sync_msg required)
+4. Same classification, processing, and storage pipeline as WeChat Customer Service
 
-**Enterprise WeChat vs WeChat Customer Service:**
+### Frontend API Flow (New)
+1. Frontend authenticates with WeChat user ID → receives Bearer token
+2. Frontend calls REST APIs with token authentication
+3. APIs return user-specific data from isolated database tables
+4. Real-time updates available through polling endpoints
+5. Complete CRUD operations supported for user profile management
 
-- **Enterprise WeChat**: Direct message delivery - complete message content is sent in the callback
-- **WeChat Customer Service**: Event-driven message sync - callback only sends event notification, requiring sync_msg API call to retrieve actual message content
+## Platform Integration Notes
 
-## Supported Message Types
-
-**Enterprise WeChat**: text, image, voice, video, file, location, link, miniprogram, event
-**WeChat Customer Service**: text, image, voice, video, file, location, link, miniprogram, msgmenu, event (enter_session, msg_send_fail, user_recall_msg)
-
-## Configuration Notes
-
-For WeChat Customer Service, use the WeChat Customer Service enterprise ID for WEWORK_CORP_ID and WeChat Customer Service Secret for WEWORK_SECRET. WEWORK_AGENT_ID can be left empty for WeChat Customer Service.
-
-## Important Implementation Notes
-
-### Message Processing Architecture
-The system uses a pipeline approach: **Message → Decrypt → Classify → Extract Text → AI Analysis → Store/Reply**
-
-Key design decisions:
-- WeChat Customer Service uses event notifications that require sync_msg API calls to get actual message content
-- All message types are converted to plain text before AI analysis for consistency
-- Chat record analysis focuses on the "other party" (not the message forwarder)
-- Database automatically stores every successful AI analysis with full metadata
-
-### Error Handling Patterns
-- Decryption: Multiple fallback methods with detailed logging
-- ETL Processing: Timeout handling with user-friendly error messages
-- AI Analysis: JSON parsing with automatic bracket repair
-- Voice Recognition: Graceful degradation when ASR/ffmpeg unavailable
-
-### Platform-Specific Behavior
+### WeChat Customer Service vs Enterprise WeChat
+- **WeChat Customer Service**: Event-driven notifications + sync_msg API calls
 - **Enterprise WeChat**: Direct message delivery in callbacks
-- **WeChat Customer Service**: Event-driven with separate message sync calls
-- Both platforms share the same processing pipeline after initial message retrieval
+- **API Compatibility**: Both platforms use identical processing pipeline after message retrieval
+- **User Isolation**: Each WeChat user ID gets dedicated data storage regardless of platform
+
+### Database Strategy
+- **Development**: SQLite with multi-user tables (database_sqlite_v2.py)
+- **Production**: PostgreSQL with advanced features (database_pg.py)
+- **Automatic Fallback**: System intelligently selects available database
+- **Data Migration**: Manual export/import between databases supported
+
+### Frontend Integration Points
+- **Authentication**: Simple Base64 token system (upgrade to JWT recommended for production)
+- **Real-time Updates**: Polling every 30 seconds, WebSocket patterns provided
+- **Mobile Support**: Responsive design with touch optimization
+- **Multi-framework**: React, Vue.js, and vanilla JavaScript examples included
+
+## Recent Updates and Improvements
+
+### Project Restructure (2025-08-04)
+- ✅ **Modular Architecture**: Clean separation of concerns with src/ directory structure  
+- ✅ **Import Path Standardization**: Relative imports with proper module hierarchy
+- ✅ **Enhanced Documentation**: Three-tier API documentation system
+- ✅ **Frontend Integration**: Complete REST API with authentication
+- ✅ **Database Evolution**: Multi-user SQLite v2 with isolated storage
+- ✅ **Testing Infrastructure**: Automated API testing and frontend test interface
+
+### Key Technical Improvements
+- **Database Isolation**: Each WeChat user gets dedicated table (e.g., `profiles_user123`)
+- **API Security**: Bearer token authentication with user validation
+- **Real-time Features**: Update checking and polling mechanisms
+- **Error Handling**: Comprehensive error recovery and user feedback
+- **Performance**: Connection pooling and query optimization
+- **Documentation**: Complete developer guides with code examples
 
 ### Configuration Dependencies
-- **Required**: WEWORK_CORP_ID, WEWORK_SECRET, WEWORK_TOKEN, WEWORK_AES_KEY, QWEN_API_KEY
-- **Optional**: ASR_TOKEN (for voice), FFMPEG_PATH (for voice conversion)
-- **Auto-configured**: ETL4LM endpoint (no API key required)
+- **Critical**: WEWORK_CORP_ID, WEWORK_SECRET, WEWORK_TOKEN, WEWORK_AES_KEY, QWEN_API_KEY
+- **Voice Features**: ASR_TOKEN (for speech recognition)
+- **Media Processing**: FFMPEG_PATH (for voice conversion)
+- **Database**: DATABASE_URL (PostgreSQL) or DATABASE_PATH (SQLite)
+- **Auto-configured**: ETL4LM service endpoint

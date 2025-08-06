@@ -206,7 +206,7 @@ class SQLiteDatabase:
                         raw_ai_response, confidence_score, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ''', (
-                    profile_data.get('name', '未知'),
+                    profile_data.get('profile_name', profile_data.get('name', '未知')),
                     profile_data.get('gender'),
                     profile_data.get('age'),
                     profile_data.get('phone'),
