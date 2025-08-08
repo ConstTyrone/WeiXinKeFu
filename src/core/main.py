@@ -34,6 +34,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 注册绑定API路由
+try:
+    from .binding_api import router as binding_router
+    app.include_router(binding_router)
+    logger.info("绑定API路由注册成功")
+except Exception as e:
+    logger.warning(f"绑定API路由注册失败: {e}")
+
 logger = logging.getLogger(__name__)
 
 # 导入数据库
@@ -333,13 +341,28 @@ async def login(request: UserLoginRequest):
             # 获取用户统计信息
             stats = db.get_user_stats(wechat_user_id)
             
+            # 检查绑定状态
+            from ..database.binding_db import binding_db
+            isBound = False
+            external_userid = None
+            
+            if binding_db:
+                binding_info = binding_db.get_user_binding(wechat_user_id)
+                if binding_info:
+                    isBound = binding_info.get('bind_status') == 1
+                    external_userid = binding_info.get('external_userid')
+                    # 更新最后登录时间
+                    binding_db.update_last_login(wechat_user_id)
+            
             return {
                 "success": True,
                 "token": token,
                 "wechat_user_id": wechat_user_id,
                 "user_id": user_id,
                 "stats": stats,
-                "openid": wechat_user_id  # 为了兼容前端
+                "openid": wechat_user_id,  # 为了兼容前端
+                "isBound": isBound,
+                "external_userid": external_userid
             }
         else:
             raise HTTPException(
