@@ -319,7 +319,11 @@ def handle_wechat_kf_event(message: Dict[str, Any]) -> None:
             latest_msg = messages[0]
             
             # 首先检查是否是验证码消息
-            msg_content = latest_msg.get('content', '')
+            # 从微信客服消息中提取文本内容
+            msg_type = latest_msg.get('msgtype', '')
+            msg_content = ''
+            if msg_type == 'text':
+                msg_content = latest_msg.get('text', {}).get('content', '')
             external_userid = latest_msg.get('external_userid', '')
             
             # 检查是否是6位数字验证码
@@ -329,17 +333,41 @@ def handle_wechat_kf_event(message: Dict[str, Any]) -> None:
                 
                 # 处理验证码绑定
                 try:
-                    from ..core.binding_api import complete_binding, CompleteBindingRequest
-                    import asyncio
+                    from ..core.binding_api import get_cache, set_cache, delete_cache
+                    from ..database.binding_db import binding_db
                     
-                    # 同步调用异步函数
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    result = loop.run_until_complete(complete_binding(CompleteBindingRequest(
-                        verify_code=msg_content,
-                        external_userid=external_userid
-                    )))
-                    loop.close()
+                    # 通过验证码查找会话token
+                    bind_token = get_cache(f"verify_code:{msg_content}")
+                    
+                    if not bind_token:
+                        result = {"success": False, "message": "验证码无效或已过期"}
+                    else:
+                        # 获取会话数据
+                        session_data = get_cache(f"bind_session:{bind_token}")
+                        
+                        if not session_data:
+                            result = {"success": False, "message": "绑定会话已过期"}
+                        elif session_data.get('status') == 'completed':
+                            result = {"success": False, "message": "该验证码已被使用"}
+                        else:
+                            # 保存绑定关系
+                            openid = session_data.get('openid')
+                            if binding_db and binding_db.save_user_binding(openid, external_userid):
+                                # 更新会话状态
+                                session_data['status'] = 'completed'
+                                session_data['external_userid'] = external_userid
+                                session_data['completed_at'] = time.time()
+                                
+                                # 保留会话数据1分钟供查询
+                                set_cache(f"bind_session:{bind_token}", session_data, 60)
+                                
+                                # 清除验证码映射
+                                delete_cache(f"verify_code:{msg_content}")
+                                
+                                result = {"success": True, "message": "绑定成功"}
+                                logger.info(f"绑定成功: openid={openid}, external_userid={external_userid}")
+                            else:
+                                result = {"success": False, "message": "保存绑定关系失败"}
                     
                     # 发送绑定结果消息给用户
                     if result.get('success'):
