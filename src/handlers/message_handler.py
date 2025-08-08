@@ -326,8 +326,12 @@ def handle_wechat_kf_event(message: Dict[str, Any]) -> None:
                 msg_content = latest_msg.get('text', {}).get('content', '')
             external_userid = latest_msg.get('external_userid', '')
             
+            # 调试日志
+            logger.info(f"消息类型: {msg_type}, 内容: {msg_content}, 长度: {len(msg_content)}, 是否为数字: {msg_content.isdigit() if msg_content else False}")
+            print(f"🔍 检查验证码: type={msg_type}, content='{msg_content}', len={len(msg_content)}, isdigit={msg_content.isdigit() if msg_content else False}")
+            
             # 检查是否是6位数字验证码
-            if len(msg_content) == 6 and msg_content.isdigit():
+            if msg_content and len(msg_content) == 6 and msg_content.isdigit():
                 print(f"🔑 收到验证码: {msg_content} from {external_userid}")
                 logger.info(f"收到验证码: {msg_content} from {external_userid}")
                 
