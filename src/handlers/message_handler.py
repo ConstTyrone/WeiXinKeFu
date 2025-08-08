@@ -342,6 +342,7 @@ def handle_wechat_kf_event(message: Dict[str, Any]) -> None:
                     
                     # 通过验证码查找会话token
                     bind_token = get_cache(f"verify_code:{msg_content}")
+                    logger.info(f"查找验证码 {msg_content} 对应的token: {bind_token}")
                     
                     if not bind_token:
                         result = {"success": False, "message": "验证码无效或已过期"}

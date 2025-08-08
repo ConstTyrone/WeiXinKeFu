@@ -144,9 +144,15 @@ async def create_binding_session(request: CreateBindingSessionRequest):
         
         # 存储会话数据
         set_cache(f"bind_session:{bind_token}", session_data, 300)
+        logger.info(f"存储会话数据: bind_session:{bind_token}")
         
         # 同时存储验证码映射（方便通过验证码查找）
         set_cache(f"verify_code:{verify_code}", bind_token, 300)
+        logger.info(f"存储验证码映射: verify_code:{verify_code} -> {bind_token}")
+        
+        # 验证存储是否成功
+        test_token = get_cache(f"verify_code:{verify_code}")
+        logger.info(f"验证存储结果: verify_code:{verify_code} -> {test_token}")
         
         logger.info(f"创建绑定会话: token={bind_token}, verify_code={verify_code}, openid={openid}")
         
