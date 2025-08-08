@@ -19,7 +19,8 @@ class BindingDatabase:
         :param db_instance: 数据库实例（PostgreSQL或SQLite）
         """
         self.db = db_instance
-        self.is_postgres = hasattr(db_instance, 'pool')
+        # 检查是否为PostgreSQL（pool是对象）还是SQLite（pool是True）
+        self.is_postgres = hasattr(db_instance, 'pool') and db_instance.pool != True
         
     def create_binding_table(self):
         """创建绑定关系表"""
@@ -65,8 +66,14 @@ class BindingDatabase:
                         cursor.execute(query)
                         conn.commit()
             else:
-                # SQLite - 需要根据实际的数据库接口调整
-                self.db.execute(query)
+                # SQLite - 使用 get_connection 方法
+                with self.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    # SQLite 不支持在一个 execute 中执行多条语句
+                    for statement in query.split(';'):
+                        if statement.strip():
+                            cursor.execute(statement)
+                    conn.commit()
             
             logger.info("绑定关系表创建成功")
             return True
@@ -112,19 +119,22 @@ class BindingDatabase:
                 FROM user_binding
                 WHERE openid = ?
                 """
-                result = self.db.fetch_one(query, (openid,))
-                if result:
-                    return {
-                        'id': result[0],
-                        'openid': result[1],
-                        'external_userid': result[2],
-                        'unionid': result[3],
-                        'bind_status': result[4],
-                        'bind_time': result[5],
-                        'last_login': result[6],
-                        'created_at': result[7],
-                        'updated_at': result[8]
-                    }
+                with self.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(query, (openid,))
+                    row = cursor.fetchone()
+                    if row:
+                        return {
+                            'id': row[0],
+                            'openid': row[1],
+                            'external_userid': row[2],
+                            'unionid': row[3],
+                            'bind_status': row[4],
+                            'bind_time': row[5],
+                            'last_login': row[6],
+                            'created_at': row[7],
+                            'updated_at': row[8]
+                        }
             
             return None
             
@@ -165,7 +175,10 @@ class BindingDatabase:
                 (openid, external_userid, bind_status, bind_time, updated_at)
                 VALUES (?, ?, 1, ?, ?)
                 """
-                self.db.execute(query, (openid, external_userid, now, now))
+                with self.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(query, (openid, external_userid, now, now))
+                    conn.commit()
             
             logger.info(f"保存绑定关系成功: openid={openid}, external_userid={external_userid}")
             return True
@@ -198,7 +211,10 @@ class BindingDatabase:
                 SET bind_status = 0, external_userid = NULL, updated_at = ?
                 WHERE openid = ?
                 """
-                self.db.execute(query, (datetime.now(), openid))
+                with self.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(query, (datetime.now(), openid))
+                    conn.commit()
             
             logger.info(f"删除绑定关系成功: openid={openid}")
             return True
@@ -224,8 +240,11 @@ class BindingDatabase:
             else:
                 # SQLite
                 query = "SELECT openid FROM user_binding WHERE external_userid = ? AND bind_status = 1"
-                result = self.db.fetch_one(query, (external_userid,))
-                return result[0] if result else None
+                with self.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(query, (external_userid,))
+                    row = cursor.fetchone()
+                    return row[0] if row else None
                 
         except Exception as e:
             logger.error(f"通过external_userid获取openid失败: {e}")
@@ -249,7 +268,10 @@ class BindingDatabase:
             else:
                 # SQLite
                 query = "UPDATE user_binding SET last_login = ? WHERE openid = ?"
-                self.db.execute(query, (now, openid))
+                with self.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(query, (now, openid))
+                    conn.commit()
             
             return True
             

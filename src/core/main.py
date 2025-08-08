@@ -34,6 +34,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+logger = logging.getLogger(__name__)
+
 # 注册绑定API路由
 try:
     from .binding_api import router as binding_router
@@ -41,8 +43,6 @@ try:
     logger.info("绑定API路由注册成功")
 except Exception as e:
     logger.warning(f"绑定API路由注册失败: {e}")
-
-logger = logging.getLogger(__name__)
 
 # 导入数据库
 try:
