@@ -318,7 +318,50 @@ def handle_wechat_kf_event(message: Dict[str, Any]) -> None:
             # 只处理最新的一条消息
             latest_msg = messages[0]
             
-            # 转换消息格式
+            # 首先检查是否是验证码消息
+            msg_content = latest_msg.get('content', '')
+            external_userid = latest_msg.get('external_userid', '')
+            
+            # 检查是否是6位数字验证码
+            if len(msg_content) == 6 and msg_content.isdigit():
+                print(f"🔑 收到验证码: {msg_content} from {external_userid}")
+                logger.info(f"收到验证码: {msg_content} from {external_userid}")
+                
+                # 处理验证码绑定
+                try:
+                    from ..core.binding_api import complete_binding, CompleteBindingRequest
+                    import asyncio
+                    
+                    # 同步调用异步函数
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    result = loop.run_until_complete(complete_binding(CompleteBindingRequest(
+                        verify_code=msg_content,
+                        external_userid=external_userid
+                    )))
+                    loop.close()
+                    
+                    # 发送绑定结果消息给用户
+                    if result.get('success'):
+                        reply_msg = "✅ 绑定成功！请返回小程序查看。"
+                    else:
+                        reply_msg = f"❌ 绑定失败：{result.get('message', '未知错误')}"
+                    
+                    wework_client.send_text_message(external_userid, open_kfid, reply_msg)
+                    print(f"✅ 绑定结果已发送: {reply_msg}")
+                    logger.info(f"验证码绑定处理完成: {result}")
+                    
+                except Exception as bind_error:
+                    logger.error(f"处理验证码绑定失败: {bind_error}")
+                    print(f"❌ 处理验证码绑定失败: {bind_error}")
+                    # 发送错误消息给用户
+                    error_msg = "绑定处理失败，请稍后再试。"
+                    wework_client.send_text_message(external_userid, open_kfid, error_msg)
+                
+                # 验证码消息不进行画像分析，直接返回
+                return
+            
+            # 转换消息格式（非验证码消息）
             converted_msg = wework_client._convert_kf_message(latest_msg)
             
             if converted_msg:
