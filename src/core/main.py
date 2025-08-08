@@ -126,6 +126,25 @@ def verify_user_token(credentials: HTTPAuthorizationCredentials = Depends(securi
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+def get_query_user_id(openid: str) -> str:
+    """获取用于查询画像的用户ID（优先使用external_userid）"""
+    try:
+        from ..database.binding_db import binding_db
+        
+        if binding_db:
+            binding_info = binding_db.get_user_binding(openid)
+            if binding_info and binding_info.get('bind_status') == 1:
+                external_userid = binding_info.get('external_userid')
+                if external_userid:
+                    logger.info(f"使用绑定的external_userid查询画像: {external_userid}")
+                    return external_userid
+        
+        logger.info(f"用户未绑定或绑定无效，使用openid查询画像: {openid}")
+        return openid
+    except Exception as e:
+        logger.error(f"获取查询用户ID时出错: {e}")
+        return openid
+
 @app.get("/wework/callback")
 async def wework_verify(msg_signature: str, timestamp: str, nonce: str, echostr: str):
     """微信客服/企业微信验证回调"""
@@ -395,8 +414,11 @@ async def get_user_profiles(
             
         offset = (page - 1) * page_size
         
+        # 获取查询用户ID（优先使用external_userid）
+        query_user_id = get_query_user_id(current_user)
+        
         profiles, total = db.get_user_profiles(
-            wechat_user_id=current_user,
+            wechat_user_id=query_user_id,
             limit=page_size,
             offset=offset,
             search=search
@@ -426,7 +448,8 @@ async def get_profile_detail(
 ):
     """获取用户画像详情"""
     try:
-        profile = db.get_user_profile_detail(current_user, profile_id)
+        query_user_id = get_query_user_id(current_user)
+        profile = db.get_user_profile_detail(query_user_id, profile_id)
         
         if not profile:
             raise HTTPException(
@@ -455,7 +478,8 @@ async def delete_profile(
 ):
     """删除用户画像"""
     try:
-        success = db.delete_user_profile(current_user, profile_id)
+        query_user_id = get_query_user_id(current_user)
+        success = db.delete_user_profile(query_user_id, profile_id)
         
         if success:
             return {"success": True, "message": "画像删除成功"}
@@ -478,7 +502,8 @@ async def delete_profile(
 async def get_user_stats(current_user: str = Depends(verify_user_token)):
     """获取用户统计信息"""
     try:
-        stats = db.get_user_stats(current_user)
+        query_user_id = get_query_user_id(current_user)
+        stats = db.get_user_stats(query_user_id)
         return UserStatsResponse(**stats)
         
     except Exception as e:
@@ -502,8 +527,9 @@ async def search_profiles(
                 detail="搜索关键词不能为空"
             )
         
+        query_user_id = get_query_user_id(current_user)
         profiles, total = db.get_user_profiles(
-            wechat_user_id=current_user,
+            wechat_user_id=query_user_id,
             search=q.strip(),
             limit=limit,
             offset=0
@@ -535,8 +561,9 @@ async def get_recent_profiles(
         if limit < 1 or limit > 50:
             limit = 10
             
+        query_user_id = get_query_user_id(current_user)
         profiles, total = db.get_user_profiles(
-            wechat_user_id=current_user,
+            wechat_user_id=query_user_id,
             limit=limit,
             offset=0
         )
@@ -558,8 +585,9 @@ async def get_recent_profiles(
 async def get_user_info(current_user: str = Depends(verify_user_token)):
     """获取当前用户信息"""
     try:
-        stats = db.get_user_stats(current_user)
-        table_name = db._get_user_table_name(current_user)
+        query_user_id = get_query_user_id(current_user)
+        stats = db.get_user_stats(query_user_id)
+        table_name = db._get_user_table_name(query_user_id)
         
         return {
             "success": True,
@@ -584,8 +612,9 @@ async def check_for_updates(
     """检查是否有新的画像数据"""
     try:
         # 获取最新的画像（最近1分钟内）
+        query_user_id = get_query_user_id(current_user)
         profiles, total = db.get_user_profiles(
-            wechat_user_id=current_user,
+            wechat_user_id=query_user_id,
             limit=5,
             offset=0
         )
