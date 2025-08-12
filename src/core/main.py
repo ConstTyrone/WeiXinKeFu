@@ -708,7 +708,8 @@ async def create_profile(
             "company": request.company or "未知",
             "position": request.position or "未知",
             "asset_level": request.asset_level or "未知",
-            "personality": request.personality or "未知"
+            "personality": request.personality or "未知",
+            "tags": request.tags or []  # 添加tags字段
         }
         
         # 准备AI响应数据（模拟AI分析结果）
@@ -800,6 +801,8 @@ async def update_profile(
             update_data["asset_level"] = request.asset_level
         if request.personality is not None:
             update_data["personality"] = request.personality
+        if request.tags is not None:
+            update_data["tags"] = request.tags  # 添加tags字段更新
         
         # 更新AI摘要（如果有备注）
         if request.notes is not None:

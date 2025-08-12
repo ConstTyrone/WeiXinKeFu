@@ -113,6 +113,7 @@ class SQLiteDatabase:
                     position TEXT,
                     asset_level TEXT,
                     personality TEXT,
+                    tags TEXT,  -- 标签字段（JSON数组）
                     
                     -- AI分析元数据
                     ai_summary TEXT,
@@ -202,9 +203,9 @@ class SQLiteDatabase:
                     INSERT OR REPLACE INTO {table_name} (
                         profile_name, gender, age, phone, location,
                         marital_status, education, company, position, asset_level,
-                        personality, ai_summary, source_type, raw_message_content,
+                        personality, tags, ai_summary, source_type, raw_message_content,
                         raw_ai_response, confidence_score, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ''', (
                     profile_data.get('profile_name', profile_data.get('name', '未知')),
                     profile_data.get('gender'),
@@ -217,6 +218,7 @@ class SQLiteDatabase:
                     profile_data.get('position'),
                     profile_data.get('asset_level'),
                     profile_data.get('personality'),
+                    json.dumps(profile_data.get('tags', []), ensure_ascii=False),  # 将tags转为JSON字符串
                     ai_response.get('summary', ''),
                     message_type,
                     raw_message[:5000],  # 限制长度
@@ -293,6 +295,14 @@ class SQLiteDatabase:
                             profile['raw_ai_response'] = json.loads(profile['raw_ai_response'])
                         except:
                             pass
+                    # 解析tags字段
+                    if profile.get('tags'):
+                        try:
+                            profile['tags'] = json.loads(profile['tags'])
+                        except:
+                            profile['tags'] = []
+                    else:
+                        profile['tags'] = []
                     profiles.append(profile)
                 
                 return profiles, total
@@ -320,6 +330,14 @@ class SQLiteDatabase:
                             profile['raw_ai_response'] = json.loads(profile['raw_ai_response'])
                         except:
                             pass
+                    # 解析tags字段
+                    if profile.get('tags'):
+                        try:
+                            profile['tags'] = json.loads(profile['tags'])
+                        except:
+                            profile['tags'] = []
+                    else:
+                        profile['tags'] = []
                     return profile
                 
                 return None
@@ -496,7 +514,11 @@ class SQLiteDatabase:
             
             for key, value in update_data.items():
                 set_clauses.append(f"{key} = ?")
-                values.append(value)
+                # 特殊处理tags字段，转换为JSON字符串
+                if key == 'tags' and isinstance(value, list):
+                    values.append(json.dumps(value, ensure_ascii=False))
+                else:
+                    values.append(value)
             
             # 添加更新时间
             set_clauses.append("updated_at = CURRENT_TIMESTAMP")
