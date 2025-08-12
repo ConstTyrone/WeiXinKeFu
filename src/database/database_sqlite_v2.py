@@ -480,6 +480,53 @@ class SQLiteDatabase:
             logger.error(f"获取用户列表失败: {e}")
             return []
     
+    def update_user_profile(
+        self, 
+        wechat_user_id: str, 
+        profile_id: int, 
+        update_data: Dict[str, Any]
+    ) -> bool:
+        """更新用户画像"""
+        try:
+            table_name = self._get_user_table_name(wechat_user_id)
+            
+            # 构建更新SQL
+            set_clauses = []
+            values = []
+            
+            for key, value in update_data.items():
+                set_clauses.append(f"{key} = ?")
+                values.append(value)
+            
+            # 添加更新时间
+            set_clauses.append("updated_at = CURRENT_TIMESTAMP")
+            
+            # 添加profile_id作为WHERE条件
+            values.append(profile_id)
+            
+            sql = f"""
+                UPDATE {table_name}
+                SET {', '.join(set_clauses)}
+                WHERE id = ?
+            """
+            
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(sql, values)
+                conn.commit()
+                
+                # 检查是否有更新
+                if cursor.rowcount > 0:
+                    logger.info(f"成功更新用户画像 - 表: {table_name}, ID: {profile_id}")
+                    return True
+                else:
+                    logger.warning(f"未找到要更新的画像 - 表: {table_name}, ID: {profile_id}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"更新用户画像失败: {e}")
+            return False
+    
     def close(self):
         """关闭数据库连接（SQLite不需要）"""
         pass

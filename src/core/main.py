@@ -636,3 +636,200 @@ async def check_for_updates(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="检查更新失败"
         )
+
+# ======================== 联系人管理API ========================
+
+class CreateProfileRequest(BaseModel):
+    """创建联系人请求模型"""
+    name: str  # 必填
+    phone: Optional[str] = None
+    wechat_id: Optional[str] = None
+    email: Optional[str] = None
+    company: Optional[str] = None
+    position: Optional[str] = None
+    address: Optional[str] = None
+    notes: Optional[str] = None
+    tags: Optional[List[str]] = []
+    # 额外的画像字段
+    gender: Optional[str] = None
+    age: Optional[str] = None
+    location: Optional[str] = None
+    marital_status: Optional[str] = None
+    education: Optional[str] = None
+    asset_level: Optional[str] = None
+    personality: Optional[str] = None
+
+class UpdateProfileRequest(BaseModel):
+    """更新联系人请求模型"""
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    wechat_id: Optional[str] = None
+    email: Optional[str] = None
+    company: Optional[str] = None
+    position: Optional[str] = None
+    address: Optional[str] = None
+    notes: Optional[str] = None
+    tags: Optional[List[str]] = None
+    # 额外的画像字段
+    gender: Optional[str] = None
+    age: Optional[str] = None
+    location: Optional[str] = None
+    marital_status: Optional[str] = None
+    education: Optional[str] = None
+    asset_level: Optional[str] = None
+    personality: Optional[str] = None
+
+@app.post("/api/profiles")
+async def create_profile(
+    request: CreateProfileRequest,
+    current_user: str = Depends(verify_user_token)
+):
+    """创建新的联系人画像"""
+    try:
+        # 验证必填字段
+        if not request.name or not request.name.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="联系人姓名不能为空"
+            )
+        
+        # 获取查询用户ID
+        query_user_id = get_query_user_id(current_user)
+        
+        # 准备画像数据
+        profile_data = {
+            "name": request.name.strip(),
+            "gender": request.gender or "未知",
+            "age": request.age or "未知",
+            "phone": request.phone or "未知",
+            "location": request.location or request.address or "未知",
+            "marital_status": request.marital_status or "未知",
+            "education": request.education or "未知",
+            "company": request.company or "未知",
+            "position": request.position or "未知",
+            "asset_level": request.asset_level or "未知",
+            "personality": request.personality or "未知"
+        }
+        
+        # 准备AI响应数据（模拟AI分析结果）
+        ai_response = {
+            "summary": f"手动创建的联系人：{request.name.strip()}",
+            "user_profiles": [profile_data]
+        }
+        
+        # 保存到数据库
+        profile_id = db.save_user_profile(
+            wechat_user_id=query_user_id,
+            profile_data=profile_data,
+            raw_message=request.notes or f"手动创建联系人：{request.name.strip()}",
+            message_type="manual_create",
+            ai_response=ai_response
+        )
+        
+        if profile_id:
+            logger.info(f"成功创建联系人画像：{profile_id}")
+            
+            # 获取创建的画像详情
+            created_profile = db.get_user_profile_detail(query_user_id, profile_id)
+            
+            return {
+                "success": True,
+                "message": "联系人创建成功",
+                "profile_id": profile_id,
+                "profile": created_profile
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="创建联系人失败"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"创建联系人失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"创建联系人失败: {str(e)}"
+        )
+
+@app.put("/api/profiles/{profile_id}")
+async def update_profile(
+    profile_id: int,
+    request: UpdateProfileRequest,
+    current_user: str = Depends(verify_user_token)
+):
+    """更新联系人画像"""
+    try:
+        # 获取查询用户ID
+        query_user_id = get_query_user_id(current_user)
+        
+        # 先检查画像是否存在
+        existing_profile = db.get_user_profile_detail(query_user_id, profile_id)
+        if not existing_profile:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="联系人不存在"
+            )
+        
+        # 准备更新数据
+        update_data = {}
+        
+        # 只更新提供的字段
+        if request.name is not None:
+            update_data["profile_name"] = request.name.strip()
+        if request.gender is not None:
+            update_data["gender"] = request.gender
+        if request.age is not None:
+            update_data["age"] = request.age
+        if request.phone is not None:
+            update_data["phone"] = request.phone
+        if request.location is not None:
+            update_data["location"] = request.location
+        elif request.address is not None:
+            update_data["location"] = request.address
+        if request.marital_status is not None:
+            update_data["marital_status"] = request.marital_status
+        if request.education is not None:
+            update_data["education"] = request.education
+        if request.company is not None:
+            update_data["company"] = request.company
+        if request.position is not None:
+            update_data["position"] = request.position
+        if request.asset_level is not None:
+            update_data["asset_level"] = request.asset_level
+        if request.personality is not None:
+            update_data["personality"] = request.personality
+        
+        # 更新AI摘要（如果有备注）
+        if request.notes is not None:
+            update_data["ai_summary"] = request.notes
+        
+        # 调用数据库更新方法
+        success = db.update_user_profile(query_user_id, profile_id, update_data)
+        
+        if success:
+            logger.info(f"成功更新联系人画像：{profile_id}")
+            
+            # 获取更新后的画像详情
+            updated_profile = db.get_user_profile_detail(query_user_id, profile_id)
+            
+            return {
+                "success": True,
+                "message": "联系人更新成功",
+                "profile": updated_profile
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="更新联系人失败"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新联系人失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"更新联系人失败: {str(e)}"
+        )

@@ -534,6 +534,52 @@ class PostgreSQLDatabase:
         score = filled_fields / total_fields
         return Decimal(str(round(score, 2)))
     
+    def update_user_profile(
+        self, 
+        wechat_user_id: str, 
+        profile_id: int, 
+        update_data: Dict[str, Any]
+    ) -> bool:
+        """更新用户画像"""
+        try:
+            # 构建更新SQL
+            set_clauses = []
+            values = []
+            
+            for key, value in update_data.items():
+                set_clauses.append(f"{key} = %s")
+                values.append(value)
+            
+            # 添加更新时间
+            set_clauses.append("updated_at = CURRENT_TIMESTAMP")
+            
+            # 添加WHERE条件参数
+            values.append(wechat_user_id)
+            values.append(profile_id)
+            
+            sql = f"""
+                UPDATE user_profiles
+                SET {', '.join(set_clauses)}
+                WHERE wechat_user_id = %s AND id = %s
+            """
+            
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(sql, values)
+                    conn.commit()
+                    
+                    # 检查是否有更新
+                    if cursor.rowcount > 0:
+                        logger.info(f"成功更新用户画像 - 用户: {wechat_user_id}, ID: {profile_id}")
+                        return True
+                    else:
+                        logger.warning(f"未找到要更新的画像 - 用户: {wechat_user_id}, ID: {profile_id}")
+                        return False
+                        
+        except Exception as e:
+            logger.error(f"更新用户画像失败: {e}")
+            return False
+    
     def close(self):
         """关闭数据库连接池"""
         if hasattr(self, 'pool'):
