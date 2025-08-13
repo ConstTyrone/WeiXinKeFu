@@ -83,3 +83,9 @@ alibabacloud-nls-python-sdk-*
 *.pdf
 !reference/*.md
 !weixin_doc/*.md
+
+# Database files (should not be in version control)
+*.db
+*.sqlite
+*.sqlite3
+user_profiles*.db
