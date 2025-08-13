@@ -733,6 +733,17 @@ async def create_profile(
             # 获取创建的画像详情
             created_profile = db.get_user_profile_detail(query_user_id, profile_id)
             
+            # 触发意图匹配（异步执行，不阻塞返回）
+            try:
+                from src.services.intent_matcher import intent_matcher
+                # 在后台异步执行匹配
+                matches = intent_matcher.match_profile_with_intents(profile_id, query_user_id)
+                if matches:
+                    logger.info(f"新联系人{profile_id}匹配到{len(matches)}个意图")
+            except Exception as e:
+                logger.error(f"触发意图匹配失败: {e}")
+                # 不影响主流程，继续返回成功
+            
             return {
                 "success": True,
                 "message": "联系人创建成功",
@@ -817,6 +828,17 @@ async def update_profile(
             # 获取更新后的画像详情
             updated_profile = db.get_user_profile_detail(query_user_id, profile_id)
             
+            # 触发意图匹配（异步执行，不阻塞返回）
+            try:
+                from src.services.intent_matcher import intent_matcher
+                # 在后台异步执行匹配
+                matches = intent_matcher.match_profile_with_intents(profile_id, query_user_id)
+                if matches:
+                    logger.info(f"更新的联系人{profile_id}匹配到{len(matches)}个意图")
+            except Exception as e:
+                logger.error(f"触发意图匹配失败: {e}")
+                # 不影响主流程，继续返回成功
+            
             return {
                 "success": True,
                 "message": "联系人更新成功",
@@ -835,4 +857,517 @@ async def update_profile(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"更新联系人失败: {str(e)}"
+        )
+
+# ===================== 意图匹配系统 API =====================
+
+class CreateIntentRequest(BaseModel):
+    """创建意图请求模型"""
+    name: str
+    description: str
+    type: Optional[str] = "general"
+    conditions: Optional[dict] = {}
+    threshold: Optional[float] = 0.7
+    priority: Optional[int] = 5
+    max_push_per_day: Optional[int] = 5
+
+class UpdateIntentRequest(BaseModel):
+    """更新意图请求模型"""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    conditions: Optional[dict] = None
+    threshold: Optional[float] = None
+    priority: Optional[int] = None
+    max_push_per_day: Optional[int] = None
+    status: Optional[str] = None
+
+@app.post("/api/intents")
+async def create_intent(
+    request: CreateIntentRequest,
+    current_user: str = Depends(verify_user_token)
+):
+    """创建新的用户意图"""
+    try:
+        import json
+        import sqlite3
+        
+        # 验证必填字段
+        if not request.name or not request.name.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="意图名称不能为空"
+            )
+        
+        # 获取用户ID
+        query_user_id = get_query_user_id(current_user)
+        
+        # 连接数据库
+        conn = sqlite3.connect(db.db_path)
+        cursor = conn.cursor()
+        
+        # 插入意图
+        cursor.execute("""
+            INSERT INTO user_intents (
+                user_id, name, description, type, conditions, 
+                threshold, priority, max_push_per_day
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            query_user_id,
+            request.name.strip(),
+            request.description,
+            request.type,
+            json.dumps(request.conditions, ensure_ascii=False),
+            request.threshold,
+            request.priority,
+            request.max_push_per_day
+        ))
+        
+        intent_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"成功创建意图：{intent_id}")
+        
+        # TODO: 触发全量匹配
+        # await trigger_full_match(intent_id, query_user_id)
+        
+        return {
+            "success": True,
+            "message": "意图创建成功",
+            "data": {
+                "intentId": intent_id,
+                "message": "意图创建成功，正在进行匹配分析"
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"创建意图失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"创建意图失败: {str(e)}"
+        )
+
+@app.get("/api/intents")
+async def get_intents(
+    status: Optional[str] = "active",
+    page: int = 1,
+    size: int = 10,
+    current_user: str = Depends(verify_user_token)
+):
+    """获取用户意图列表"""
+    try:
+        import json
+        import sqlite3
+        
+        # 获取用户ID
+        query_user_id = get_query_user_id(current_user)
+        
+        # 连接数据库
+        conn = sqlite3.connect(db.db_path)
+        cursor = conn.cursor()
+        
+        # 查询意图
+        offset = (page - 1) * size
+        
+        if status:
+            cursor.execute("""
+                SELECT * FROM user_intents 
+                WHERE user_id = ? AND status = ?
+                ORDER BY priority DESC, created_at DESC
+                LIMIT ? OFFSET ?
+            """, (query_user_id, status, size, offset))
+        else:
+            cursor.execute("""
+                SELECT * FROM user_intents 
+                WHERE user_id = ?
+                ORDER BY priority DESC, created_at DESC
+                LIMIT ? OFFSET ?
+            """, (query_user_id, size, offset))
+        
+        columns = [desc[0] for desc in cursor.description]
+        intents = []
+        
+        for row in cursor.fetchall():
+            intent = dict(zip(columns, row))
+            # 解析JSON字段
+            if intent.get('conditions'):
+                try:
+                    intent['conditions'] = json.loads(intent['conditions'])
+                except:
+                    intent['conditions'] = {}
+            intents.append(intent)
+        
+        # 获取总数
+        if status:
+            cursor.execute(
+                "SELECT COUNT(*) FROM user_intents WHERE user_id = ? AND status = ?",
+                (query_user_id, status)
+            )
+        else:
+            cursor.execute(
+                "SELECT COUNT(*) FROM user_intents WHERE user_id = ?",
+                (query_user_id,)
+            )
+        total = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        return {
+            "success": True,
+            "data": {
+                "intents": intents,
+                "total": total,
+                "page": page,
+                "size": size
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"获取意图列表失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取意图列表失败: {str(e)}"
+        )
+
+@app.get("/api/intents/{intent_id}")
+async def get_intent_detail(
+    intent_id: int,
+    current_user: str = Depends(verify_user_token)
+):
+    """获取意图详情"""
+    try:
+        import json
+        import sqlite3
+        
+        # 获取用户ID
+        query_user_id = get_query_user_id(current_user)
+        
+        # 连接数据库
+        conn = sqlite3.connect(db.db_path)
+        cursor = conn.cursor()
+        
+        # 查询意图
+        cursor.execute("""
+            SELECT * FROM user_intents 
+            WHERE id = ? AND user_id = ?
+        """, (intent_id, query_user_id))
+        
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="意图不存在"
+            )
+        
+        columns = [desc[0] for desc in cursor.description]
+        intent = dict(zip(columns, row))
+        
+        # 解析JSON字段
+        if intent.get('conditions'):
+            try:
+                intent['conditions'] = json.loads(intent['conditions'])
+            except:
+                intent['conditions'] = {}
+        
+        # 获取匹配统计
+        cursor.execute("""
+            SELECT COUNT(*) as total_matches,
+                   COUNT(CASE WHEN user_feedback = 'positive' THEN 1 END) as positive_matches,
+                   COUNT(CASE WHEN is_pushed = 1 THEN 1 END) as pushed_matches
+            FROM intent_matches 
+            WHERE intent_id = ?
+        """, (intent_id,))
+        
+        stats = cursor.fetchone()
+        intent['stats'] = {
+            'total_matches': stats[0],
+            'positive_matches': stats[1],
+            'pushed_matches': stats[2]
+        }
+        
+        conn.close()
+        
+        return {
+            "success": True,
+            "data": intent
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取意图详情失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取意图详情失败: {str(e)}"
+        )
+
+@app.put("/api/intents/{intent_id}")
+async def update_intent(
+    intent_id: int,
+    request: UpdateIntentRequest,
+    current_user: str = Depends(verify_user_token)
+):
+    """更新意图"""
+    try:
+        import json
+        import sqlite3
+        
+        # 获取用户ID
+        query_user_id = get_query_user_id(current_user)
+        
+        # 连接数据库
+        conn = sqlite3.connect(db.db_path)
+        cursor = conn.cursor()
+        
+        # 检查意图是否存在
+        cursor.execute(
+            "SELECT id FROM user_intents WHERE id = ? AND user_id = ?",
+            (intent_id, query_user_id)
+        )
+        if not cursor.fetchone():
+            conn.close()
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="意图不存在"
+            )
+        
+        # 构建更新语句
+        update_fields = []
+        update_values = []
+        
+        if request.name is not None:
+            update_fields.append("name = ?")
+            update_values.append(request.name)
+        if request.description is not None:
+            update_fields.append("description = ?")
+            update_values.append(request.description)
+        if request.conditions is not None:
+            update_fields.append("conditions = ?")
+            update_values.append(json.dumps(request.conditions, ensure_ascii=False))
+        if request.threshold is not None:
+            update_fields.append("threshold = ?")
+            update_values.append(request.threshold)
+        if request.priority is not None:
+            update_fields.append("priority = ?")
+            update_values.append(request.priority)
+        if request.max_push_per_day is not None:
+            update_fields.append("max_push_per_day = ?")
+            update_values.append(request.max_push_per_day)
+        if request.status is not None:
+            update_fields.append("status = ?")
+            update_values.append(request.status)
+        
+        if update_fields:
+            update_fields.append("updated_at = CURRENT_TIMESTAMP")
+            update_values.extend([intent_id, query_user_id])
+            
+            cursor.execute(f"""
+                UPDATE user_intents 
+                SET {', '.join(update_fields)}
+                WHERE id = ? AND user_id = ?
+            """, update_values)
+            
+            conn.commit()
+        
+        conn.close()
+        
+        return {
+            "success": True,
+            "message": "意图更新成功"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新意图失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"更新意图失败: {str(e)}"
+        )
+
+@app.delete("/api/intents/{intent_id}")
+async def delete_intent(
+    intent_id: int,
+    current_user: str = Depends(verify_user_token)
+):
+    """删除意图"""
+    try:
+        import sqlite3
+        
+        # 获取用户ID
+        query_user_id = get_query_user_id(current_user)
+        
+        # 连接数据库
+        conn = sqlite3.connect(db.db_path)
+        cursor = conn.cursor()
+        
+        # 删除意图（级联删除匹配记录）
+        cursor.execute(
+            "DELETE FROM user_intents WHERE id = ? AND user_id = ?",
+            (intent_id, query_user_id)
+        )
+        
+        if cursor.rowcount == 0:
+            conn.close()
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="意图不存在"
+            )
+        
+        conn.commit()
+        conn.close()
+        
+        return {
+            "success": True,
+            "message": "意图删除成功"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"删除意图失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"删除意图失败: {str(e)}"
+        )
+
+@app.post("/api/intents/{intent_id}/match")
+async def trigger_intent_match(
+    intent_id: int,
+    current_user: str = Depends(verify_user_token)
+):
+    """手动触发意图匹配"""
+    try:
+        # 获取用户ID
+        query_user_id = get_query_user_id(current_user)
+        
+        # 导入匹配引擎
+        from src.services.intent_matcher import intent_matcher
+        
+        # 执行匹配
+        matches = intent_matcher.match_intent_with_profiles(intent_id, query_user_id)
+        
+        return {
+            "success": True,
+            "message": f"匹配完成，找到{len(matches)}个潜在联系人",
+            "data": {
+                "intentId": intent_id,
+                "matchesFound": len(matches),
+                "matches": matches[:10]  # 返回前10个匹配结果预览
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"触发匹配失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"触发匹配失败: {str(e)}"
+        )
+
+@app.get("/api/matches")
+async def get_matches(
+    intent_id: Optional[int] = None,
+    status: Optional[str] = "pending",
+    min_score: Optional[float] = None,
+    page: int = 1,
+    size: int = 20,
+    current_user: str = Depends(verify_user_token)
+):
+    """获取匹配结果列表"""
+    try:
+        import json
+        import sqlite3
+        
+        # 获取用户ID
+        query_user_id = get_query_user_id(current_user)
+        
+        # 连接数据库
+        conn = sqlite3.connect(db.db_path)
+        cursor = conn.cursor()
+        
+        # 构建查询条件
+        where_clauses = ["m.user_id = ?"]
+        params = [query_user_id]
+        
+        if intent_id:
+            where_clauses.append("m.intent_id = ?")
+            params.append(intent_id)
+        if status:
+            where_clauses.append("m.status = ?")
+            params.append(status)
+        if min_score is not None:
+            where_clauses.append("m.match_score >= ?")
+            params.append(min_score)
+        
+        # 查询匹配结果
+        offset = (page - 1) * size
+        params.extend([size, offset])
+        
+        # 获取用户表名
+        user_table = db.get_user_table_name(query_user_id)
+        
+        query = f"""
+            SELECT 
+                m.*,
+                i.name as intent_name,
+                i.description as intent_description,
+                p.profile_name,
+                p.company,
+                p.position,
+                p.location
+            FROM intent_matches m
+            LEFT JOIN user_intents i ON m.intent_id = i.id
+            LEFT JOIN {user_table} p ON m.profile_id = p.id
+            WHERE {' AND '.join(where_clauses)}
+            ORDER BY m.match_score DESC, m.created_at DESC
+            LIMIT ? OFFSET ?
+        """
+        
+        cursor.execute(query, params)
+        
+        columns = [desc[0] for desc in cursor.description]
+        matches = []
+        
+        for row in cursor.fetchall():
+            match = dict(zip(columns, row))
+            # 解析JSON字段
+            for field in ['score_details', 'matched_conditions']:
+                if match.get(field):
+                    try:
+                        match[field] = json.loads(match[field])
+                    except:
+                        pass
+            matches.append(match)
+        
+        # 获取总数
+        count_params = params[:-2]  # 去掉LIMIT和OFFSET参数
+        count_query = f"""
+            SELECT COUNT(*) 
+            FROM intent_matches m
+            WHERE {' AND '.join(where_clauses)}
+        """
+        cursor.execute(count_query, count_params)
+        total = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        return {
+            "success": True,
+            "data": {
+                "matches": matches,
+                "total": total,
+                "page": page,
+                "size": size
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"获取匹配结果失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取匹配结果失败: {str(e)}"
+        )
         )
